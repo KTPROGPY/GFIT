@@ -1,12 +1,12 @@
-import csv
-import os
-import json
+from csv import DictReader
+from os import listdir
+from json import load
 
 # slownik .csv
 lista_DWA = []
 
 with open('Dzienne wskaźniki aktywności.csv', mode='r', encoding='utf-8') as DWA:
-    czytnik = csv.DictReader(DWA)
+    czytnik =  DictReader(DWA)
 
     for wiersz in czytnik:
         czysty_wiersz = {}
@@ -22,10 +22,10 @@ with open('Dzienne wskaźniki aktywności.csv', mode='r', encoding='utf-8') as D
 # slownik .json
 katalog = '.'
 wyniki_snu = []
-for nazwa_pliku in os.listdir(katalog):
+for nazwa_pliku in listdir(katalog):
     if nazwa_pliku.endswith(".json"):
         with open(nazwa_pliku, 'r', encoding='utf-8') as plik:
-            dane = json.load(plik)
+            dane = load(plik)
             if dane.get("fitnessActivity") == "sleep":
                 if "startTime" in dane and "endTime" in dane and "duration" in dane:
                     czas_snu_tekst = dane["duration"]
@@ -78,4 +78,4 @@ for data, zawartosc in analiza_dzienna.items():
     print(f"Data: {data}")
     print(f"  -> Aktywność: {zawartosc['aktywnosc']}")
     print(f"  -> Sen: {zawartosc['sen']}")
-    print("-" * 50)
+    print("=" * 100)
