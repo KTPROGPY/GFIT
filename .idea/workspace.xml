@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="f2cdb614-0e4b-49e9-acd1-2136a673d70b" name="Changes" comment="+ wczytanie plików .json">
+    <list default="true" id="f2cdb614-0e4b-49e9-acd1-2136a673d70b" name="Changes" comment="drobne poprawki">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
@@ -94,7 +94,9 @@
       <option name="presentableId" value="Default" />
       <updated>1790019208957</updated>
       <workItem from="1790019209985" duration="7307000" />
-      <workItem from="1790064788782" duration="7858000" />
+      <workItem from="1790064788782" duration="16464000" />
+      <workItem from="1790276281838" duration="2903000" />
+      <workItem from="1790364122950" duration="2599000" />
     </task>
     <task id="LOCAL-00001" summary="start - wczytanie pliku .csv">
       <option name="closed" value="true" />
@@ -112,7 +114,23 @@
       <option name="project" value="LOCAL" />
       <updated>1790031452424</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="drobne poprawki">
+      <option name="closed" value="true" />
+      <created>1790074386824</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1790074386824</updated>
+    </task>
+    <task id="LOCAL-00004" summary="drobne poprawki">
+      <option name="closed" value="true" />
+      <created>1790074423948</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1790074423948</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -121,9 +139,10 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="start - wczytanie pliku .csv" />
     <MESSAGE value="+ wczytanie plików .json" />
-    <option name="LAST_COMMIT_MESSAGE" value="+ wczytanie plików .json" />
+    <MESSAGE value="drobne poprawki" />
+    <option name="LAST_COMMIT_MESSAGE" value="drobne poprawki" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/PythonGFIT$main.coverage" NAME="main Coverage Results" MODIFIED="1790067822565" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PythonGFIT$main.coverage" NAME="main Coverage Results" MODIFIED="1790364966952" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

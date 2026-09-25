@@ -1,6 +1,7 @@
 from csv import DictReader
 from os import listdir
 from json import load
+import pandas as pd
 
 # slownik .csv
 lista_DWA = []
@@ -39,43 +40,28 @@ for nazwa_pliku in listdir(katalog):
                     godzina_pobudki = rozdzielone_koniec[1][:-1]
                     pelna_data_start = dane["startTime"]
                     godzina_startu = pelna_data_start.split('T')[1][:-1]
-                    calkowite_minuty = sekundy_snu // 60
+
 
                     wpis = {
-                        "data": data_dla_snu,
+                        "Data": data_dla_snu,
                         "start": godzina_startu,
                         "koniec": godzina_pobudki,
-                        "czas_tekst": f"{calkowite_minuty} min"
+                        "czas_tekst": sekundy_snu
                     }
                     wyniki_snu.append(wpis)
 
 
-#for sen in wyniki_snu:
-    #print(f"Data pobudki: {sen['data']} | Zasypianie: {sen['start']} | Pobudka: {sen['koniec']} | Czas: {sen['czas_tekst']}")
+# DF baza
 
-# Słownik zbiorczy
-analiza_dzienna = {}
+tabela_aktywnosc = pd.DataFrame(lista_DWA)
+tabela_sen = pd.DataFrame(wyniki_snu)
 
+tabela_danych = pd.merge(tabela_aktywnosc, tabela_sen, on='Data', how='outer')
+tabela_danych['Punkty kardio'] = tabela_danych['Punkty kardio'].fillna(0)
+tabela_danych['Minuty intensywnego treningu'] = tabela_danych['Minuty intensywnego treningu'].fillna(0)
 
-for wiersz_csv in lista_DWA:
-    data = wiersz_csv["Data"]
-    analiza_dzienna[data] = {
-        "aktywnosc": wiersz_csv,
-        "sen": None
-    }
-for sen in wyniki_snu:
-    data_snu = sen["data"]
+tabela_danych['Data'] = pd.to_datetime(tabela_danych['Data'])
+tabela_danych['start'] = pd.to_datetime(tabela_danych['start'], errors='coerce').dt.time
+tabela_danych['koniec'] = pd.to_datetime(tabela_danych['koniec'], errors='coerce').dt.time
 
-    if data_snu in analiza_dzienna:
-        analiza_dzienna[data_snu]["sen"] = sen
-    else:
-        analiza_dzienna[data_snu] = {
-            "aktywnosc": None,
-            "sen": sen
-        }
-
-for data, zawartosc in analiza_dzienna.items():
-    print(f"Data: {data}")
-    print(f"  -> Aktywność: {zawartosc['aktywnosc']}")
-    print(f"  -> Sen: {zawartosc['sen']}")
-    print("=" * 100)
+print(tabela_danych.info())
