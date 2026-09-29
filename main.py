@@ -2,7 +2,6 @@ from csv import DictReader
 from os import listdir
 from json import load
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import pandas as pd
 from packaging.tags import platform_tags
 
@@ -85,44 +84,40 @@ sensowne_kolumny = [
 ]
 tabela_danych = tabela_danych[sensowne_kolumny]
 
-
-
 #print(tabela_danych.info())
 
 # Funkcje
-"""
-def statystyki(dane, nazwa_kolumny, okres):
 
-    czyste_dane = dane.dropna(subset=[nazwa_kolumny])
-    klucz_grupowania = None
+def statystyki(dane, parametr, data_od, data_do):
+    dane = dane.copy()
+    dane['Data'] = pd.to_datetime(dane['Data'])
+    data_od = pd.to_datetime(data_od)
+    data_do = pd.to_datetime(data_do)
 
-    if okres == 'rok':
-        klucz_grupowania = czyste_dane['Data'].dt.year
-    elif okres == 'miesiac':
-        klucz_grupowania = czyste_dane['Data'].dt.to_period('M')
-    elif okres == 'tydzien':
-        klucz_grupowania = czyste_dane['Data'].dt.to_period('W')
-    else:
-        print("Wybierz: 'rok', 'miesiac' lub 'tydzien'.")
-        return
+    dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)]
+    czyste_dane = dane.dropna(subset=[parametr])
 
-    srednia = czyste_dane.groupby(klucz_grupowania)[nazwa_kolumny].mean()
-    odchylenie = czyste_dane.groupby(klucz_grupowania)[nazwa_kolumny].std()
+    if czyste_dane.empty:
+        return None, None, None
 
-    print(f"--- ŚREDNIA dla: {nazwa_kolumny} ({okres}) ---")
-    print(srednia)
-    print(f"\n--- ODCHYLENIE dla: {nazwa_kolumny} ({okres}) ---")
-    print(odchylenie)
-    print("-" * 40)
+    srednia = czyste_dane[parametr].mean()
+    odchylenie = czyste_dane[parametr].std()
 
-    return srednia, odchylenie
-"""
+    roznica = abs(czyste_dane[parametr] - srednia)
+    aberracje = czyste_dane[roznica > (2 * odchylenie)]
 
-def rysuj_porownanie(df, data_od, data_do, parametr_1, parametr_2):
+    return srednia, odchylenie, aberracje[['Data', parametr]]
+
+#test
+print(statystyki(tabela_danych, parametr='Najwyższe tętno (bpm)',data_od='2026-05-01',data_do='2026-08-30'))
+
+
+
+def rysuj_wykresy(dane, data_od, data_do, parametr_1, parametr_2):
 
     # przygotowanie danych
 
-    dane = df.copy()
+    dane = dane.copy()
     dane['Data'] = pd.to_datetime(dane['Data'])
     data_od = pd.to_datetime(data_od)
     data_do = pd.to_datetime(data_do)
@@ -144,8 +139,7 @@ def rysuj_porownanie(df, data_od, data_do, parametr_1, parametr_2):
     ax2.plot(dane['Data'], dane[srednia_k7_2], linewidth=2, color='red',label=f'{parametr_2} (średnia 7-dniowa)')
     ax2.set_ylabel(parametr_2, color='red')
     ax2.tick_params(axis='y', labelcolor='red')
-    format_daty = mdates.DateFormatter('%Y-%m-%d')
-    ax1.xaxis.set_major_formatter(format_daty)
+
     plt.setp(ax1.get_xticklabels(), rotation=45)
     linie_ax1, etykiety_ax1 = ax1.get_legend_handles_labels()
     linie_ax2, etykiety_ax2 = ax2.get_legend_handles_labels()
@@ -155,7 +149,8 @@ def rysuj_porownanie(df, data_od, data_do, parametr_1, parametr_2):
 
     return fig
 
-rysuj_porownanie(
+#test
+rysuj_wykresy(
 tabela_danych,
 data_od='2026-05-01',
 data_do='2026-08-30',
