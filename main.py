@@ -4,13 +4,12 @@ from json import load
 import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
 
-# slownik .csv
+# wczytanie dzennego wskaznika aktywnosci
 lista_DWA = []
-
 with open('Dzienne wskaźniki aktywności.csv', mode='r', encoding='utf-8') as DWA:
     czytnik = DictReader(DWA)
-
     for wiersz in czytnik:
         czysty_wiersz = {}
         for klucz, wartosc in wiersz.items():
@@ -22,11 +21,12 @@ with open('Dzienne wskaźniki aktywności.csv', mode='r', encoding='utf-8') as D
                 czysty_wiersz[klucz] = wartosc
         lista_DWA.append(czysty_wiersz)
 
-# slownik .json
+# wczytanie snu
 katalog = '.'
 wyniki_snu = []
 for nazwa_pliku in listdir(katalog):
-    if nazwa_pliku.endswith(".json"):
+    # Dodany warunek "derived not in...", żeby pętla ignorowała duży plik z tętnem
+    if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
         with open(nazwa_pliku, 'r', encoding='utf-8') as plik:
             dane = load(plik)
             if dane.get("fitnessActivity") == "sleep":
@@ -37,225 +37,217 @@ for nazwa_pliku in listdir(katalog):
                         continue
 
                     pelna_data_konca = dane["endTime"]
-                    rozdzielone_koniec = pelna_data_konca.split('T')
-                    data_dla_snu = rozdzielone_koniec[0]
-                    godzina_pobudki = rozdzielone_koniec[1][:-1]
-                    pelna_data_start = dane["startTime"]
-                    godzina_startu = pelna_data_start.split('T')[1][:-1]
+                    data_dla_snu = pelna_data_konca.split('T')[0]
 
                     wpis = {
-                        "Data": data_dla_snu,
-                        "start": godzina_startu,
-                        "koniec": godzina_pobudki,
+                        "Data": pd.to_datetime(data_dla_snu),
+                        "start_pelny": pd.to_datetime(dane["startTime"][:-1]),
+                        "koniec_pelny": pd.to_datetime(pelna_data_konca[:-1]),
                         "czas_snu": sekundy_snu
                     }
                     wyniki_snu.append(wpis)
 
-# DF baza
-
 tabela_aktywnosc = pd.DataFrame(lista_DWA)
 tabela_sen = pd.DataFrame(wyniki_snu)
+tabela_aktywnosc['Data'] = pd.to_datetime(tabela_aktywnosc['Data'])
+tabela_sen['Data'] = pd.to_datetime(tabela_sen['Data'])
 
+# wczytanie tetna
+nazwa_pliku_fit = 'derived_com.google.heart_rate.bpm_com.google.android.gms_merge_heart_rate_bpm.json'
+with open(nazwa_pliku_fit, 'r', encoding='utf-8') as plik:
+    dane_json = load(plik)
+
+lista_tetna = []
+for punkt in dane_json.get("Data Points", []):
+    try:
+        wartosc_bpm = punkt["fitValue"][0]["value"]["fpVal"]
+        czas_sekundy = int(punkt["startTimeNanos"]) / 1_000_000_000
+        lista_tetna.append({
+            "PelnyCzas": pd.to_datetime(czas_sekundy, unit='s'),
+            "Tetno": float(wartosc_bpm)
+        })
+    except (KeyError, IndexError, ValueError):
+        continue
+
+df_tetno = pd.DataFrame(lista_tetna)
+df_tetno['PelnyCzas'] = df_tetno['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert('Europe/Warsaw').dt.tz_localize(None)
+
+# obliczenia
+dane_nocne_lista = []
+for index, wiersz in tabela_sen.iterrows():
+    maska = (df_tetno['PelnyCzas'] >= wiersz['start_pelny']) & (df_tetno['PelnyCzas'] <= wiersz['koniec_pelny'])
+    tetno_w_czasie_snu = df_tetno[maska].copy()
+
+    if not tetno_w_czasie_snu.empty:
+        tetno_w_czasie_snu['Data'] = wiersz['Data']  # Kopiujemy tekstową datę do tętna
+        dane_nocne_lista.append(tetno_w_czasie_snu)
+
+if dane_nocne_lista:
+    dane_nocne = pd.concat(dane_nocne_lista, ignore_index=True)
+    dzienne_rhr = dane_nocne.groupby('Data')['Tetno'].median().reset_index()
+    dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
+
+    # Tworzenie kolumn do algorytmu Stanfordu
+    dzienne_rhr['Baseline'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).mean()
+    dzienne_rhr['Odchylenie'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).std()
+    dzienne_rhr['Z_score'] = (dzienne_rhr['Nocne tętno (bpm)'] - dzienne_rhr['Baseline']) / dzienne_rhr['Odchylenie']
+    dzienne_rhr['Anomalia'] = (dzienne_rhr['Z_score'] > 2.0).astype(int)
+    dzienne_rhr['Prawie_anomalia'] = ((dzienne_rhr['Z_score'] > 1.5) & (dzienne_rhr['Z_score'] <= 2.0)).astype(int)
+else:
+    dzienne_rhr = pd.DataFrame(
+        columns=['Data', 'Nocne tętno (bpm)', 'Baseline', 'Odchylenie', 'Z_score', 'Anomalia', 'Prawie_anomalia'])
+
+# 5. ŁĄCZENIE (Twój stary styl, dodane tylko łączenie z dzienne_rhr)
 tabela_danych = pd.merge(tabela_aktywnosc, tabela_sen, on='Data', how='outer')
+tabela_danych = pd.merge(tabela_danych, dzienne_rhr, on='Data',
+                         how='outer')  # Doklejamy tętno na podstawie tekstu z Data
+
 tabela_danych['Czas snu (min)'] = tabela_danych['czas_snu'] // 60
 tabela_danych['Punkty kardio'] = tabela_danych['Punkty kardio'].fillna(0)
 tabela_danych['Minuty intensywnego treningu'] = tabela_danych['Minuty intensywnego treningu'].fillna(0)
+
+# Dopiero po wszystkich merge'ach zamieniamy tekst w dacie na datetime (tak jak było u Ciebie)
 tabela_danych['Data'] = pd.to_datetime(tabela_danych['Data'])
 tabela_danych = tabela_danych.sort_values(by='Data').reset_index(drop=True)
 tabela_danych['Średnia waga (kg)'] = tabela_danych['Średnia waga (kg)'].interpolate(method='linear')
-# tabela_danych['start'] = pd.to_datetime(tabela_danych['start'], errors='coerce').dt.time
-# tabela_danych['koniec'] = pd.to_datetime(tabela_danych['koniec'], errors='coerce').dt.time
+
 sensowne_kolumny = [
-    'Data',
-    'Liczba kroków',
-    'Kalorie (kcal)',
-    'Odległość (m)',
-    'Punkty kardio',
-    'Minuty intensywnego treningu',
-    'Średnie tętno (bpm)',
-    'Najniższe tętno (bpm)',
-    'Najwyższe tętno (bpm)',
-    'Średnia waga (kg)',
-    'Liczba minut ruchu',
-    'Min. wysycenie tlenem (%)',
-    'Średnie wysycenie tlenem (%)',
-    'Czas snu (min)'
+    'Data', 'Liczba kroków', 'Kalorie (kcal)', 'Odległość (m)', 'Punkty kardio',
+    'Minuty intensywnego treningu', 'Średnie tętno (bpm)', 'Nocne tętno (bpm)',  # Nowa kolumna
+    'Baseline', 'Odchylenie', 'Z_score', 'Anomalia', 'Prawie_anomalia',  # Nowe kolumny z algorytmu
+    'Najwyższe tętno (bpm)', 'Średnia waga (kg)', 'Liczba minut ruchu',
+    'Średnie wysycenie tlenem (%)', 'Czas snu (min)'
 ]
-tabela_danych = tabela_danych[sensowne_kolumny]
 
 
-# print(tabela_danych.info())
+dostepne_kolumny = [kol for kol in sensowne_kolumny if kol in tabela_danych.columns]
+tabela_danych = tabela_danych[dostepne_kolumny]
 
-# Funkcje
-
-
-def statystyki(dane, parametr, data_od, data_do):
+def rysuj_wykres_rhr(dane, data_od, data_do):
     dane = dane.copy()
     dane['Data'] = pd.to_datetime(dane['Data'])
     data_od = pd.to_datetime(data_od)
     data_do = pd.to_datetime(data_do)
 
-    dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)]
-    czyste_dane = dane.dropna(subset=[parametr])
+    czyste_dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)].dropna(
+        subset=['Nocne tętno (bpm)', 'Baseline']).sort_values('Data')
 
     if czyste_dane.empty:
-        return None, None, None
-
-    srednia = czyste_dane[parametr].mean()
-    odchylenie = czyste_dane[parametr].std()
-
-    roznica = abs(czyste_dane[parametr] - srednia)
-    aberracje = czyste_dane[roznica > (2 * odchylenie)]
-
-    return srednia, odchylenie, aberracje[['Data', parametr]]
-
-
-# test
-print(statystyki(tabela_danych, parametr='Najniższe tętno (bpm)', data_od='2026-05-01', data_do='2026-08-30'))
-
-
-def rysuj_wykres(dane, parametr, data_od, data_do):
-    srednia, odchylenie, aberracje = statystyki(dane, parametr, data_od, data_do)
-
-    if srednia is None:
-        print(f"Brak danych dla parametru '{parametr}' w wybranym zakresie.")
+        print("Brak danych w wybranym zakresie.")
         return None
 
-    dane = dane.copy()
-    dane['Data'] = pd.to_datetime(dane['Data'])
-    data_od = pd.to_datetime(data_od)
-    data_do = pd.to_datetime(data_do)
-    dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)]
-    czyste_dane = dane.dropna(subset=[parametr]).sort_values('Data')
-
+    czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(czyste_dane['Data'], czyste_dane[parametr], label=parametr, marker='o', zorder=3)
-    ax.axhline(srednia, color='green', linestyle='--', label=f'Średnia: {srednia:.1f}', zorder=2)
 
-    # Poprawione wcięcie – rysujemy kropki anomalii, jeśli istnieją
+    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Nocne tętno (bpm)'], label='Nocne tętno (bpm)', marker='o',
+            color='tab:blue', zorder=3, alpha=0.6)
+    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Baseline'], label='Linia bazowa (28 dni)', color='green', zorder=2,
+            linewidth=2)
+
+    aberracje = czyste_dane[czyste_dane['Anomalia'] == 1]
     if not aberracje.empty:
-        ax.scatter(aberracje['Data'], aberracje[parametr], color='red', s=100, zorder=5, label='Anomalie')
+        ax.scatter(aberracje['Data_tekst'], aberracje['Nocne tętno (bpm)'], color='red', s=100, zorder=5,
+                   label='Anomalia (>2 odchylenia)')
 
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
     ax.set_xlabel('Data')
-    ax.set_ylabel(parametr)  # Usunięte zbędne klamry wokół zmiennej
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=15, maxticks=30))
+    ax.set_ylabel('Nocne tętno (bpm)')
+    ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-
     ax.legend()
+    plt.title('Wykrywanie fizjologicznych anomalii (wzór RHR-Diff)')
     plt.tight_layout()
     plt.show()
     return fig
 
 
-# test
-rysuj_wykres(tabela_danych, parametr='Czas snu (min)', data_od='2026-05-01', data_do='2026-08-30')
+def szereg_czasowy_kroki_tetno(dane, data_od, data_do):
+    df = dane.copy()
+    df['Data'] = pd.to_datetime(df['Data'])
+    df = df[(df['Data'] >= data_od) & (df['Data'] <= data_do)]
+    df = df.dropna(subset=['Liczba kroków', 'Nocne tętno (bpm)'])
 
-
-def rysuj_wykresy(dane, data_od, data_do, parametr_1, parametr_2):
-    dane = dane.copy()
-    dane['Data'] = pd.to_datetime(dane['Data'])
-    data_od = pd.to_datetime(data_od)
-    data_do = pd.to_datetime(data_do)
-    dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)]
-
-    srednia_k7_1 = f'{parametr_1}_srednia'
-    srednia_k7_2 = f'{parametr_2}_srednia'
-    dane[srednia_k7_1] = dane[parametr_1].rolling(window=7, min_periods=1).mean()
-    dane[srednia_k7_2] = dane[parametr_2].rolling(window=7, min_periods=1).mean()
-
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(dane['Data'], dane[parametr_1], marker='o', linestyle='none', color='lightblue', label=f'{parametr_1}')
-    ax1.plot(dane['Data'], dane[srednia_k7_1], linewidth=2, color='blue', label=f'{parametr_1} (średnia 7-dniowa)')
-    ax1.set_ylabel(parametr_1, color='blue')
-    ax1.tick_params(axis='y', labelcolor='blue')
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    ax1.bar(df['Data'], df['Liczba kroków'], color='gray', alpha=0.3, label='Kroki')
+    ax1.set_xlabel('Data')
+    ax1.set_ylabel('Liczba kroków', color='gray')
+    ax1.tick_params(axis='y', labelcolor='gray')
 
     ax2 = ax1.twinx()
-    ax2.plot(dane['Data'], dane[parametr_2], marker='^', linestyle='none', color='salmon', label=f'{parametr_2}')
-    ax2.plot(dane['Data'], dane[srednia_k7_2], linewidth=2, color='red', label=f'{parametr_2} (średnia 7-dniowa)')
-    ax2.set_ylabel(parametr_2, color='red')
-    ax2.tick_params(axis='y', labelcolor='red')
+    ax2.plot(df['Data'], df['Nocne tętno (bpm)'], color='tab:red', linewidth=2, label='Tętno nocne')
+    ax2.set_ylabel('Nocne tętno (bpm)', color='tab:red')
+    ax2.tick_params(axis='y', labelcolor='tab:red')
 
-    plt.setp(ax1.get_xticklabels(), rotation=45)
-    linie_ax1, etykiety_ax1 = ax1.get_legend_handles_labels()
-    linie_ax2, etykiety_ax2 = ax2.get_legend_handles_labels()
-    ax1.legend(linie_ax1 + linie_ax2, etykiety_ax1 + etykiety_ax2, loc='upper left')
-    plt.tight_layout()
+    fig.autofmt_xdate()
+    plt.title('Szereg czasowy: Aktywność dzienna vs Regeneracja nocna')
+    fig.tight_layout()
     plt.show()
 
-    return fig
 
-
-# test
-rysuj_wykresy(
-    tabela_danych,
-    data_od='2026-05-01',
-    data_do='2026-08-30',
-    parametr_1='Czas snu (min)',
-    parametr_2='Najniższe tętno (bpm)'
-)
-
-
-def heatmapa_korelacji(dane, lista_parametrow, data_od, data_do):
-    df_wykres = dane.copy()
-    df_wykres['Data'] = pd.to_datetime(df_wykres['Data'])
-    data_od = pd.to_datetime(data_od)
-    data_do = pd.to_datetime(data_do)
-    df_wykres = df_wykres[(df_wykres['Data'] >= data_od) & (df_wykres['Data'] <= data_do)]
-    czyste_dane = df_wykres[lista_parametrow].dropna()
-
-    if czyste_dane.empty:
-        print("Brak danych do wygenerowania korelacji.")
-        return None
-
-    macierz_korelacji = czyste_dane.corr()
-
-    fig, ax = plt.subplots(figsize=(12, 10))
-
-    img = ax.imshow(macierz_korelacji, cmap='coolwarm', vmin=-1, vmax=1)
-
-    ax.set_xticks(range(len(lista_parametrow)))
-    ax.set_yticks(range(len(lista_parametrow)))
-
-    ax.set_xticklabels(lista_parametrow, rotation=45, ha='right')
-    ax.set_yticklabels(lista_parametrow)
-
-
-    for i in range(len(lista_parametrow)):
-        for j in range(len(lista_parametrow)):
-            wartosc = macierz_korelacji.iloc[i, j]
-            kolor_tekstu = 'white' if abs(wartosc) > 0.5 else 'black'
-            ax.text(j, i, f"{wartosc:.2f}", ha='center', va='center', color=kolor_tekstu, fontsize=9, fontweight='bold')
-
-    plt.colorbar(img, label='Współczynnik korelacji')
-    ax.set_title("Macierz korelacji parametrów zdrowotnych", pad=20)
-    plt.subplots_adjust(bottom=0.25, left=0.25, top=0.9, right=0.9)
-    plt.show()
-
-    return fig
-
-
-
+# TESTY
 parametry_do_badania = [
-    'Liczba kroków',
-    'Kalorie (kcal)',
-    'Odległość (m)',
-    'Punkty kardio',
-    'Minuty intensywnego treningu',
-    'Średnie tętno (bpm)',
-    'Najniższe tętno (bpm)',
-    'Najwyższe tętno (bpm)',
-    'Średnia waga (kg)',
-    'Liczba minut ruchu',
-    #'Min. wysycenie tlenem (%)',
-    'Średnie wysycenie tlenem (%)',
-    'Czas snu (min)'
+    'Liczba kroków', 'Kalorie (kcal)', 'Odległość (m)', 'Punkty kardio',
+    'Minuty intensywnego treningu', 'Nocne tętno (bpm)',  # Zaktualizowana lista o nocne tętno
+    'Średnia waga (kg)', 'Czas snu (min)'
 ]
 
-# test
-heatmapa_korelacji(
-    tabela_danych,
-    lista_parametrow=parametry_do_badania,
-    data_od='2026-01-01',
-    data_do='2026-08-30'
-)
+
+rysuj_wykres_rhr(tabela_danych, data_od='2026-01-01', data_do='2026-08-30')
+szereg_czasowy_kroki_tetno(tabela_danych, data_od='2026-01-01', data_do='2026-08-30')
+
+#weryfikacja
+print("\n=== WYKRYTE ANOMALIE (> 2 odchylenia standardowe) ===")
+tabela_anomalii = tabela_danych[tabela_danych['Anomalia'] == 1]
+
+for index, wiersz in tabela_anomalii.iterrows():
+    # Wypisuje datę, tętno nocne z tego dnia, linię bazową (normę) i wartość odchylenia
+    print(f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} | Tętno: {wiersz['Nocne tętno (bpm)']:.1f} bpm | Norma: {wiersz['Baseline']:.1f} bpm | Skok o {wiersz['Z_score']:.2f} std")
+
+
+def weryfikuj_infekcje(dane, dni_wstecz=14, dni_w_przod=7):
+    dane = dane.copy()
+    dane['Data'] = pd.to_datetime(dane['Data'])
+    anomalie = dane[dane['Anomalia'] == 1]
+
+    print(f"\n=== WERYFIKACJA OBJAWOWA ({dni_w_przod} dni po skoku tętna) ===")
+
+    if anomalie.empty:
+        print("Brak anomalii do weryfikacji.")
+        return
+
+    for index, wiersz in anomalie.iterrows():
+        data_anomalii = wiersz['Data']
+
+        maska_przed = (dane['Data'] >= data_anomalii - pd.Timedelta(days=dni_wstecz)) & (dane['Data'] < data_anomalii)
+        okno_przed = dane[maska_przed]
+
+
+        maska_po = (dane['Data'] >= data_anomalii) & (dane['Data'] <= data_anomalii + pd.Timedelta(days=dni_w_przod))
+        okno_po = dane[maska_po]
+
+        if okno_przed.empty or okno_po.empty:
+            continue
+
+        kroki_przed = okno_przed['Liczba kroków'].mean()
+        kroki_po = okno_po['Liczba kroków'].mean()
+        sen_przed = okno_przed['Czas snu (min)'].mean()
+        sen_po = okno_po['Czas snu (min)'].mean()
+
+        if pd.isna(kroki_przed) or pd.isna(kroki_po):
+            continue
+
+        zmiana_krokow_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100 if kroki_przed > 0 else 0
+        zmiana_snu_min = (sen_po - sen_przed) if not pd.isna(sen_przed) and not pd.isna(sen_po) else 0
+
+
+        is_choroba = (zmiana_krokow_proc <= -25) or (zmiana_snu_min >= 45)
+        werdykt = "POTWIERDZONA CHOROBA" if is_choroba else "FAŁSZYWY ALARM"
+
+        print(f"Data: {data_anomalii.strftime('%Y-%m-%d')} | Skok tętna o {wiersz['Z_score']:.2f} std")
+        print(f"  -> Kroki: norma {kroki_przed:.0f} -> w trakcie {kroki_po:.0f} ({zmiana_krokow_proc:+.1f}%)")
+        if not pd.isna(sen_przed) and not pd.isna(sen_po):
+            print(f"  -> Sen: norma {sen_przed:.0f} min -> w trakcie {sen_po:.0f} min ({zmiana_snu_min:+.0f} min)")
+        print(f"  -> {werdykt}\n")
+
+# test weryfikacji
+weryfikuj_infekcje(tabela_danych)
