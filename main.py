@@ -149,6 +149,11 @@ def rysuj_wykres_rhr(dane, data_od, data_do):
         ax.scatter(aberracje['Data_tekst'], aberracje['Nocne tętno (bpm)'], color='red', s=100, zorder=5,
                    label='Anomalia (>2 odchylenia)')
 
+    ostrzezenia = czyste_dane[czyste_dane['Prawie_anomalia'] == 1]
+    if not ostrzezenia.empty:
+        ax.scatter(ostrzezenia['Data_tekst'], ostrzezenia['Nocne tętno (bpm)'], color='orange', s=80, zorder=4,
+                   label='Ostrzeżenie (1.5-2.0 odchylenia)')
+
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
     ax.set_xlabel('Data')
     ax.set_ylabel('Nocne tętno (bpm)')
@@ -243,11 +248,20 @@ def weryfikuj_infekcje(dane, dni_wstecz=14, dni_w_przod=7):
         is_choroba = (zmiana_krokow_proc <= -25) or (zmiana_snu_min >= 45)
         werdykt = "POTWIERDZONA CHOROBA" if is_choroba else "FAŁSZYWY ALARM"
 
-        print(f"Data: {data_anomalii.strftime('%Y-%m-%d')} | Skok tętna o {wiersz['Z_score']:.2f} std")
-        print(f"  -> Kroki: norma {kroki_przed:.0f} -> w trakcie {kroki_po:.0f} ({zmiana_krokow_proc:+.1f}%)")
-        if not pd.isna(sen_przed) and not pd.isna(sen_po):
-            print(f"  -> Sen: norma {sen_przed:.0f} min -> w trakcie {sen_po:.0f} min ({zmiana_snu_min:+.0f} min)")
-        print(f"  -> {werdykt}\n")
+        # weryfikacja
+        print("\n=== WYKRYTE ANOMALIE (> 2 odchylenia standardowe) ===")
+        tabela_anomalii = tabela_danych[tabela_danych['Anomalia'] == 1]
+
+        for index, wiersz in tabela_anomalii.iterrows():
+            print(
+                f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} | Tętno: {wiersz['Nocne tętno (bpm)']:.1f} bpm | Norma: {wiersz['Baseline']:.1f} bpm | Skok o {wiersz['Z_score']:.2f} std")
+        print("\n=== STANY OSTRZEGAWCZE (1.5 - 2.0 odchylenia standardowe) ===")
+
+        tabela_ostrzezen = tabela_danych[tabela_danych['Prawie_anomalia'] == 1]
+
+        for index, wiersz in tabela_ostrzezen.iterrows():
+            print(
+                f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} | Tętno: {wiersz['Nocne tętno (bpm)']:.1f} bpm | Norma: {wiersz['Baseline']:.1f} bpm | Skok o {wiersz['Z_score']:.2f} std")
 
 # test weryfikacji
 weryfikuj_infekcje(tabela_danych)
