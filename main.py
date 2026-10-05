@@ -1,178 +1,18 @@
 from os import listdir
 from json import load
 import matplotlib.pyplot as plt
-import pandas as pd
 import matplotlib.ticker as ticker
-from matplotlib.backends.backend_pdf import PdfPages
+import pandas as pd
 import numpy as np
-
-# 1.1 Wczytanie snu
-katalog = '.'
-wyniki_snu = []
-for nazwa_pliku in listdir(katalog):
-    if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
-        with open(nazwa_pliku, 'r', encoding='utf-8') as plik:
-            dane = load(plik)
-            if dane.get("fitnessActivity") == "sleep":
-                if "startTime" in dane and "endTime" in dane and "duration" in dane:
-                    czas_snu_tekst = dane["duration"]
-                    sekundy_snu = int(czas_snu_tekst[:-1])
-                    if sekundy_snu < 7200:
-                        continue
-
-                    pelna_data_konca = dane["endTime"]
-                    data_dla_snu = pelna_data_konca.split('T')[0]
-
-                    wpis = {
-                        "Data": pd.to_datetime(data_dla_snu),
-                        "start_pelny": pd.to_datetime(dane["startTime"][:-1]),
-                        "koniec_pelny": pd.to_datetime(pelna_data_konca[:-1]),
-                        "czas_snu": sekundy_snu
-                    }
-                    wyniki_snu.append(wpis)
-
-tabela_sen = pd.DataFrame(wyniki_snu)
-tabela_sen['Data'] = pd.to_datetime(tabela_sen['Data'])
-
-# 1.2 Wczytanie tętna
-nazwa_pliku_fit = 'derived_com.google.heart_rate.bpm_com.google.android.gms_merge_heart_rate_bpm.json'
-with open(nazwa_pliku_fit, 'r', encoding='utf-8') as plik:
-    dane_json = load(plik)
-
-lista_tetna = []
-for punkt in dane_json.get("Data Points", []):
-    try:
-        wartosc_bpm = punkt["fitValue"][0]["value"]["fpVal"]
-        czas_sekundy = int(punkt["startTimeNanos"]) / 1_000_000_000
-        lista_tetna.append({
-            "PelnyCzas": pd.to_datetime(czas_sekundy, unit='s'),
-            "Tetno": float(wartosc_bpm)
-        })
-    except (KeyError, IndexError, ValueError):
-        continue
-
-df_tetno = pd.DataFrame(lista_tetna)
-df_tetno['PelnyCzas'] = df_tetno['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert('Europe/Warsaw').dt.tz_localize(None)
-
-# 1.3. Wczytanie kroków
-nazwa_pliku_kroki = 'derived_com.google.step_count.delta_com.google.android.gms_estimated_steps.json'
-with open(nazwa_pliku_kroki, 'r', encoding='utf-8') as plik:
-    dane_kroki_json = load(plik)
-
-lista_krokow = []
-for punkt in dane_kroki_json.get("Data Points", []):
-    try:
-        liczba_krokow = punkt["fitValue"][0]["value"]["intVal"]
-        czas_sekundy = int(punkt["startTimeNanos"]) / 1_000_000_000
-        lista_krokow.append({
-            "PelnyCzas": pd.to_datetime(czas_sekundy, unit='s'),
-            "Kroki": liczba_krokow
-        })
-    except (KeyError, IndexError, ValueError):
-        continue
-
-tabela_kroki = pd.DataFrame(lista_krokow)
-tabela_kroki['PelnyCzas'] = tabela_kroki['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert(
-    'Europe/Warsaw').dt.tz_localize(None)
-
-# 2. Obliczenia nocnego tętna spoczynkowego (RHR)
-dane_nocne_lista = []
-for index, wiersz in tabela_sen.iterrows():
-    maska = (df_tetno['PelnyCzas'] >= wiersz['start_pelny']) & (df_tetno['PelnyCzas'] <= wiersz['koniec_pelny'])
-    tetno_w_czasie_snu = df_tetno[maska].copy()
-
-    if not tetno_w_czasie_snu.empty:
-        tetno_w_czasie_snu['Data'] = wiersz['Data']
-        dane_nocne_lista.append(tetno_w_czasie_snu)
-
-if dane_nocne_lista:
-    dane_nocne = pd.concat(dane_nocne_lista, ignore_index=True)
-    dzienne_rhr = dane_nocne.groupby('Data')['Tetno'].median().reset_index()
-    dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
-
-    dzienne_rhr['Baseline'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).mean()
-    dzienne_rhr['Odchylenie'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).std()
-    dzienne_rhr['Z_score'] = (dzienne_rhr['Nocne tętno (bpm)'] - dzienne_rhr['Baseline']) / dzienne_rhr['Odchylenie']
-    dzienne_rhr['Anomalia'] = (dzienne_rhr['Z_score'] > 2.0).astype(int)
-    dzienne_rhr['Prawie_anomalia'] = ((dzienne_rhr['Z_score'] > 1.5) & (dzienne_rhr['Z_score'] <= 2.0)).astype(int)
-else:
-    dzienne_rhr = pd.DataFrame(
-        columns=['Data', 'Nocne tętno (bpm)', 'Baseline', 'Odchylenie', 'Z_score', 'Anomalia', 'Prawie_anomalia'])
-
-# Agregacja dziennych kroków
-tabela_kroki['Data'] = tabela_kroki['PelnyCzas'].dt.normalize()
-dzienne_kroki = tabela_kroki.groupby('Data')['Kroki'].sum().reset_index()
-dzienne_kroki.rename(columns={'Kroki': 'Liczba kroków'}, inplace=True)
-
-# 3. Algorytm HROS (Model Stanforda)
-tabela_kroki_indeks = tabela_kroki.set_index('PelnyCzas')
-tabela_tetno_indeks = df_tetno.set_index('PelnyCzas')
-
-kroki_15m = tabela_kroki_indeks[['Kroki']].resample('15min').sum()
-tetno_15m = tabela_tetno_indeks[['Tetno']].resample('15min').mean()
-
-tabela_hros = pd.merge(kroki_15m, tetno_15m, left_index=True, right_index=True, how='inner')
-tabela_hros = tabela_hros[tabela_hros['Kroki'] > 10].copy()
-
-#3.1 Koszyki aktywności
-przedzialy = [10, 100, 300, 500, 1000, np.inf]
-etykiety = ['Bardzo lekki', 'Lekki', 'Umiarkowany', 'Intensywny', 'Bardzo intensywny']
-tabela_hros['Koszyk'] = pd.cut(tabela_hros['Kroki'], bins=przedzialy, labels=etykiety)
-
-tabela_hros = tabela_hros.sort_index()
-
-#3.2  Norma i odchylenie z 28 dni (dla każdego koszyka osobno)
-def licz_normy_koszyka(grupa):
-    grupa['Baseline_HR'] = grupa['Tetno'].rolling('28D', min_periods=7).mean()
-    grupa['Std_HR'] = grupa['Tetno'].rolling('28D', min_periods=7).std()
-    return grupa
-
-tabela_hros = tabela_hros.groupby('Koszyk', observed=True, group_keys=False).apply(licz_normy_koszyka)
-
-#3.3 Z-score  (dla każdego 15-minutowego okna na podstawie jego koszyka)
-tabela_hros['Z_score_15m'] = (tabela_hros['Tetno'] - tabela_hros['Baseline_HR']) / tabela_hros['Std_HR']
-
-#3.4 Agregacja do średniego dziennego Z-score
-tabela_hros['Data'] = tabela_hros.index.normalize()
-dzienne_hros = tabela_hros.groupby('Data')['Z_score_15m'].mean().reset_index()
-dzienne_hros.rename(columns={'Z_score_15m': 'Z_score_wskaznik'}, inplace=True)
+from matplotlib.backends.backend_pdf import PdfPages
 
 
-# 4. ŁĄCZENIE
-tabela_danych = pd.merge(tabela_sen, dzienne_rhr, on='Data', how='outer')
-tabela_danych = pd.merge(tabela_danych, dzienne_hros, on='Data', how='outer')
-tabela_danych = pd.merge(tabela_danych, dzienne_kroki, on='Data', how='outer')
-
-tabela_danych['Czas snu (min)'] = tabela_danych['czas_snu'] // 60
-tabela_danych['Data'] = pd.to_datetime(tabela_danych['Data'])
-tabela_danych = tabela_danych.sort_values(by='Data').reset_index(drop=True)
-
-#5 Sprawdzanie anomalii z gotowego już Z-score dla HROS
-tabela_danych['Anomalia_wskaznik'] = (tabela_danych['Z_score_wskaznik'] > 2.0).astype(int)
-tabela_danych['Prawie_anomalia_wskaznik'] = ((tabela_danych['Z_score_wskaznik'] > 1.5) & (tabela_danych['Z_score_wskaznik'] <= 2.0)).astype(int)
-
-sensowne_kolumny = [
-    'Data', 'Liczba kroków', 'Czas snu (min)', 'Nocne tętno (bpm)',
-    'Baseline', 'Odchylenie', 'Z_score', 'Anomalia', 'Prawie_anomalia',
-    'Z_score_wskaznik', 'Anomalia_wskaznik', 'Prawie_anomalia_wskaznik'
-]
-dostepne_kolumny = [kol for kol in sensowne_kolumny if kol in tabela_danych.columns]
-tabela_danych = tabela_danych[dostepne_kolumny]
+# 1. FUNKCJE (Wykresy, Weryfikacja i Raporty)
 
 
-#6 Fukcje i weryfikacja
-
-def rysuj_wykres_rhr(dane, data_od, data_do):
-    dane = dane.copy()
-    dane['Data'] = pd.to_datetime(dane['Data'])
-    data_od = pd.to_datetime(data_od)
-    data_do = pd.to_datetime(data_do)
-
-    czyste_dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)].dropna(
-        subset=['Nocne tętno (bpm)', 'Baseline']).sort_values('Data')
-
+def wykres_rhr(dane):
+    czyste_dane = dane.dropna(subset=['Nocne tętno (bpm)', 'Baseline_RHR']).sort_values('Data')
     if czyste_dane.empty:
-        print("Brak danych w wybranym zakresie dla RHR.")
         return None
 
     czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
@@ -180,127 +20,84 @@ def rysuj_wykres_rhr(dane, data_od, data_do):
 
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Nocne tętno (bpm)'], label='Nocne tętno (bpm)', marker='o',
             color='tab:blue', zorder=3, alpha=0.6)
-    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Baseline'], label='Linia bazowa (28 dni)', color='green', zorder=2,
+    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Baseline_RHR'], label='Średnia krocząca (28 dni)', color='green', zorder=2,
             linewidth=2)
 
-    aberracje = czyste_dane[czyste_dane['Anomalia'] == 1]
-    if not aberracje.empty:
-        ax.scatter(aberracje['Data_tekst'], aberracje['Nocne tętno (bpm)'], color='red', s=100, zorder=5,
-                   label='Anomalia (>2 odchylenia)')
+    infekcje_rhr = czyste_dane[czyste_dane['Infekcja_RHR'] == 1]
+    ax.scatter(infekcje_rhr['Data_tekst'], infekcje_rhr['Nocne tętno (bpm)'], color='red', s=80, zorder=5,
+               label='Infekcja (>2 std)')
 
-    ostrzezenia = czyste_dane[czyste_dane['Prawie_anomalia'] == 1]
-    if not ostrzezenia.empty:
-        ax.scatter(ostrzezenia['Data_tekst'], ostrzezenia['Nocne tętno (bpm)'], color='orange', s=80, zorder=4,
-                   label='Ostrzeżenie (1.5-2.0 odchylenia)')
+    ostrzezenia_rhr = czyste_dane[czyste_dane['Ostrzezenie_RHR'] == 1]
+    ax.scatter(ostrzezenia_rhr['Data_tekst'], ostrzezenia_rhr['Nocne tętno (bpm)'], color='orange', s=60, zorder=4,
+               label='Ostrzeżenie (1.5-2.0 std)')
 
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
     ax.set_xlabel('Data')
     ax.set_ylabel('Nocne tętno (bpm)')
+
     ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.xticks(rotation=45)
     ax.legend()
-    plt.title('Wykrywanie fizjologicznych anomalii (wzór RHR-Diff)')
+    plt.title('Detekcja infekcji na podstawie nocnego tętna spoczynkowego (RHR)')
     plt.tight_layout()
+
     return fig
 
 
-def rysuj_wykres_wskaznika(dane, data_od, data_do):
-    dane = dane.copy()
-    dane['Data'] = pd.to_datetime(dane['Data'])
-    data_od = pd.to_datetime(data_od)
-    data_do = pd.to_datetime(data_do)
-
-    czyste_dane = dane[(dane['Data'] >= data_od) & (dane['Data'] <= data_do)].dropna(
-        subset=['Z_score_wskaznik']).sort_values('Data')
-
+def wykres_hros(dane):
+    czyste_dane = dane.dropna(subset=['Z_score_HROS']).sort_values('Data')
     if czyste_dane.empty:
-        print("Brak danych w wybranym zakresie dla HROS.")
         return None
 
     czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Z_score_wskaznik'], label='Średni dzienny Z-score (HROS)',
-            marker='o',
+    ax.plot(czyste_dane['Data_tekst'], czyste_dane['Z_score_HROS'], label='Z-score (HROS)', marker='o',
             color='tab:purple', zorder=3, alpha=0.6)
 
-    ax.axhline(y=0, color='green', linestyle='-', zorder=2, label='Idealna norma (Z=0)')
-    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie (1.5)')
-    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Anomalia (2.0)')
+    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie (1.5 -2.0 std)')
+    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja (2.0 std)')
 
-    aberracje = czyste_dane[czyste_dane['Anomalia_wskaznik'] == 1]
-    if not aberracje.empty:
-        ax.scatter(aberracje['Data_tekst'], aberracje['Z_score_wskaznik'], color='red', s=100, zorder=5)
+    infekcje_hros = czyste_dane[czyste_dane['Infekcja_HROS'] == 1]
+    ax.scatter(infekcje_hros['Data_tekst'], infekcje_hros['Z_score_HROS'], color='red', s=100, zorder=5)
 
-    ostrzezenia = czyste_dane[czyste_dane['Prawie_anomalia_wskaznik'] == 1]
-    if not ostrzezenia.empty:
-        ax.scatter(ostrzezenia['Data_tekst'], ostrzezenia['Z_score_wskaznik'], color='orange', s=80, zorder=4)
+    ostrzezenia_hros = czyste_dane[czyste_dane['Ostrzezenie_HROS'] == 1]
+    ax.scatter(ostrzezenia_hros['Data_tekst'], ostrzezenia_hros['Z_score_HROS'], color='orange', s=80, zorder=4)
 
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
     ax.set_xlabel('Data')
-    ax.set_ylabel('Odchylenie w std (Z-score)')
+    ax.set_ylabel('Odchylenie (Z-score)')
+
     ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=15))
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    plt.xticks(rotation=45)
     ax.legend()
-    plt.title('Algorytm HROS (Wysiłek vs Tętno) - Wzór Stanford')
+    plt.title('Detekcja infekcji metodą HROS (Heart Rate Over Steps)')
     plt.tight_layout()
-    return fig
 
-def szereg_czasowy_kroki_tetno(dane, data_od, data_do):
-    df = dane.copy()
-    df['Data'] = pd.to_datetime(df['Data'])
-    df = df[(df['Data'] >= data_od) & (df['Data'] <= data_do)]
-    df = df.dropna(subset=['Liczba kroków', 'Nocne tętno (bpm)'])
-
-    if df.empty:
-        print("Brak danych w wybranym zakresie dla wykresu szeregu czasowego.")
-        return None
-
-    fig, ax1 = plt.subplots(figsize=(12, 6))
-    ax1.bar(df['Data'], df['Liczba kroków'], color='gray', alpha=0.3, label='Kroki')
-    ax1.set_xlabel('Data')
-    ax1.set_ylabel('Liczba kroków', color='gray')
-    ax1.tick_params(axis='y', labelcolor='gray')
-
-    ax2 = ax1.twinx()
-    ax2.plot(df['Data'], df['Nocne tętno (bpm)'], color='tab:red', linewidth=2, label='Tętno nocne')
-    ax2.set_ylabel('Nocne tętno (bpm)', color='tab:red')
-    ax2.tick_params(axis='y', labelcolor='tab:red')
-
-    fig.autofmt_xdate()
-    plt.title('Szereg czasowy: Aktywność dzienna vs Regeneracja nocna')
-    fig.tight_layout()
     return fig
 
 
-def weryfikuj_infekcje(dane, kolumna_anomalii='Anomalia', nazwa_metody="RHR", dni_wstecz=14, dni_w_przod=7):
-    dane = dane.copy()
-    dane['Data'] = pd.to_datetime(dane['Data'])
-    anomalie = dane[dane[kolumna_anomalii] == 1]
+def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_metody, dni_wstecz=14, dni_w_przod=7):
+    zdarzenia = dane[(dane[kol_infekcji] == 1) | (dane[kol_ostrzezenia] == 1)]
+    raport = f"=== WERYFIKACJA: {nazwa_metody} ===\n"
 
-
-    raport = f"=== WERYFIKACJA OBJAWOWA ({nazwa_metody}) ===\n"
-
-    if anomalie.empty:
-        raport += f"Brak anomalii do weryfikacji dla metody {nazwa_metody}.\n\n"
+    if zdarzenia.empty:
+        raport += f"Brak zdarzeń do weryfikacji.\n\n"
         return raport
 
-    for index, wiersz in anomalie.iterrows():
-        data_anomalii = wiersz['Data']
+    for index, wiersz in zdarzenia.iterrows():
+        data_zd = wiersz['Data']
+        typ_skoku = "INFEKCJA" if wiersz[kol_infekcji] == 1 else "OSTRZEŻENIE"
+        z_score_val = wiersz[kol_zscore]
 
-        maska_przed = (dane['Data'] >= data_anomalii - pd.Timedelta(days=dni_wstecz)) & (dane['Data'] < data_anomalii)
-        okno_przed = dane[maska_przed]
-
-        maska_po = (dane['Data'] >= data_anomalii) & (dane['Data'] <= data_anomalii + pd.Timedelta(days=dni_w_przod))
-        okno_po = dane[maska_po]
+        okno_przed = dane[(dane['Data'] >= data_zd - pd.Timedelta(days=dni_wstecz)) & (dane['Data'] < data_zd)]
+        okno_po = dane[(dane['Data'] >= data_zd) & (dane['Data'] <= data_zd + pd.Timedelta(days=dni_w_przod))]
 
         if okno_przed.empty or okno_po.empty:
             continue
 
-        kroki_przed = okno_przed['Liczba kroków'].mean()
-        kroki_po = okno_po['Liczba kroków'].mean()
-        sen_przed = okno_przed['Czas snu (min)'].mean()
-        sen_po = okno_po['Czas snu (min)'].mean()
+        kroki_przed, kroki_po = okno_przed['Liczba kroków'].mean(), okno_po['Liczba kroków'].mean()
+        sen_przed, sen_po = okno_przed['Czas snu (min)'].mean(), okno_po['Czas snu (min)'].mean()
 
         if pd.isna(kroki_przed) or pd.isna(kroki_po):
             continue
@@ -308,78 +105,194 @@ def weryfikuj_infekcje(dane, kolumna_anomalii='Anomalia', nazwa_metody="RHR", dn
         zmiana_krokow_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100 if kroki_przed > 0 else 0
         zmiana_snu_min = (sen_po - sen_przed) if not pd.isna(sen_przed) and not pd.isna(sen_po) else 0
 
-        is_choroba = (zmiana_krokow_proc <= -25) or (zmiana_snu_min >= 45)
-        werdykt = "POTWIERDZONA CHOROBA" if is_choroba else "FAŁSZYWY ALARM"
+        is_choroba = (zmiana_krokow_proc <= -20)
+        werdykt = "POTWIERDZONA INFEKCJA" if is_choroba else "FAŁSZYWY ALARM"
 
-        z_score_val = wiersz['Z_score'] if kolumna_anomalii == 'Anomalia' else wiersz['Z_score_wskaznik']
-
-        raport += f"Data: {data_anomalii.strftime('%Y-%m-%d')} | Skok o {z_score_val:.2f} std\n"
+        raport += f"Data: {data_zd.strftime('%Y-%m-%d')} [{typ_skoku}] | Skok o {z_score_val:.2f} std\n"
         raport += f"  -> Kroki: norma {kroki_przed:.0f} -> w trakcie {kroki_po:.0f} ({zmiana_krokow_proc:+.1f}%)\n"
         if not pd.isna(sen_przed) and not pd.isna(sen_po):
-            raport += f"  -> Sen: norma {sen_przed:.0f} min -> w trakcie {sen_po:.0f} min ({zmiana_snu_min:+.0f} min)\n"
-            raport += f"  -> {werdykt}\n\n"
+            raport += f"  -> Sen (informacyjnie): norma {sen_przed:.0f} min -> w trakcie {sen_po:.0f} min ({zmiana_snu_min:+.0f} min)\n"
+        raport += f"  -> {werdykt}\n\n"
 
     return raport
 
+def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykresy.pdf"):
+    dane.to_csv(nazwa_csv, index=False, encoding='utf-8')
 
-def eksportuj_wyniki(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykresy.pdf"):
-
-    dane_eksport = dane.rename(columns={
-        'Baseline': 'Baseline_RHR_Nocne',
-        'Odchylenie': 'Odchylenie_RHR_Nocne',
-        'Z_score': 'Z_score_RHR_Nocne',
-        'Anomalia': 'Anomalia_RHR_Nocne',
-        'Prawie_anomalia': 'Prawie_anomalia_RHR_Nocne',
-        'Z_score_wskaznik': 'Z_score_HROS_Kroki',
-        'Anomalia_wskaznik': 'Anomalia_HROS_Kroki',
-        'Prawie_anomalia_wskaznik': 'Prawie_anomalia_HROS_Kroki'
-    })
-
-    # 1. Zapis pełnej bazy do jednego pliku CSV
-    dane_eksport.to_csv(nazwa_csv, index=False, encoding='utf-8')
-
-    # 2. Generowanie raportów tekstowych w pamięci
-    raport_rhr = weryfikuj_infekcje(dane, kolumna_anomalii='Anomalia', nazwa_metody="RHR (Nocne Tętno)")
-    raport_hros = weryfikuj_infekcje(dane, kolumna_anomalii='Anomalia_wskaznik', nazwa_metody="HROS (Stanford)")
+    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)")
+    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)")
     pelny_raport = raport_rhr + raport_hros
 
-    # Sprawdzenie pokrywających się dni
-    pelny_raport += "=== NAKŁADANIE METOD: POTWIERDZONE OBIEMA METODAMI ===\n"
-    wspolne_anomalie = dane[(dane['Anomalia'] == 1) & (dane['Anomalia_wskaznik'] == 1)]
-    if wspolne_anomalie.empty:
-        pelny_raport += "Brak dni, w których obie metody zgłosiły anomalię.\n"
+    pelny_raport += "=== POTWIERDZONE OBIEMA METODAMI ===\n"
+    filtr_RHR = (dane['Infekcja_RHR'] == 1) | (dane['Ostrzezenie_RHR'] == 1)
+    filtr_HROS = (dane['Infekcja_HROS'] == 1) | (dane['Ostrzezenie_HROS'] == 1)
+
+    wspolne_infekcje = dane[filtr_RHR & filtr_HROS]
+    if wspolne_infekcje.empty:
+        pelny_raport += "Brak wspólnych dni.\n"
     else:
-        for index, wiersz in wspolne_anomalie.iterrows():
-            pelny_raport += f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} - Skok w obu algorytmach na raz!\n"
+        for index, wiersz in wspolne_infekcje.iterrows():
+            pelny_raport += f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} - Niepokojący skok w obu algorytmach!\n"
 
     print(pelny_raport)
 
-#8. Zapis do wielostronicowego PDF
     with PdfPages(nazwa_pdf) as pdf:
-        data_od = dane['Data'].min()
-        data_do = dane['Data'].max()
-
-        # Strona 1: Wykres RHR
-        fig1 = rysuj_wykres_rhr(dane, data_od, data_do)
+        fig1 = wykres_rhr(dane)
         if fig1:
             pdf.savefig(fig1)
-            plt.close(fig1)
 
-        # Strona 2: Wykres HROS
-        fig2 = rysuj_wykres_wskaznika(dane, data_od, data_do)
+        fig2 = wykres_hros(dane)
         if fig2:
             pdf.savefig(fig2)
-            plt.close(fig2)
 
-        # Strona 3: Tekst z wynikami
         fig_text = plt.figure(figsize=(10, 8))
         fig_text.clf()
         fig_text.text(0.05, 0.95, pelny_raport, transform=fig_text.transFigure, size=10, family='monospace', va='top')
         pdf.savefig(fig_text)
         plt.close(fig_text)
 
-    print(f"\n[SUKCES] Zapisano pełne wyniki do: {nazwa_csv}")
-    print(f"[SUKCES] Zapisano raport z wykresami i diagnozami do: {nazwa_pdf}")
+    print(f"\n[SUKCES] Zapisano dane do: {nazwa_csv}")
+    print(f"[SUKCES] Zapisano raport (wykresy + diagnozy) do: {nazwa_pdf}")
+    plt.show()
 
-#9 Wywołanie
-eksportuj_wyniki(tabela_danych)
+# 2. GŁÓWNA LOGIKA PROGRAMU
+
+#Wczytanie snu
+wyniki_snu = []
+for nazwa_pliku in listdir('.'):
+    if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
+        with open(nazwa_pliku, 'r', encoding='utf-8') as plik:
+            dane = load(plik)
+            if dane.get("fitnessActivity") == "sleep" and "startTime" in dane and "endTime" in dane and "duration" in dane:
+                sekundy_snu = int(dane["duration"][:-1])
+                if sekundy_snu >= 7200:
+                    wyniki_snu.append({
+                        "Data": pd.to_datetime(dane["endTime"].split('T')[0]),
+                        "start_pelny": pd.to_datetime(dane["startTime"][:-1]),
+                        "koniec_pelny": pd.to_datetime(dane["endTime"][:-1]),
+                        "czas_snu": sekundy_snu
+                    })
+tabela_sen = pd.DataFrame(wyniki_snu)
+
+#Wczytanie tętna
+with open('derived_com.google.heart_rate.bpm_com.google.android.gms_merge_heart_rate_bpm.json', 'r', encoding='utf-8') as plik:
+    dane_json = load(plik)
+
+lista_tetna = []
+for punkt in dane_json.get("Data Points", []):
+    try:
+        lista_tetna.append({
+            "PelnyCzas": pd.to_datetime(int(punkt["startTimeNanos"]) / 1_000_000_000, unit='s'),
+            "Tetno": float(punkt["fitValue"][0]["value"]["fpVal"])
+        })
+    except (KeyError, IndexError, ValueError):
+        continue
+
+tabela_tetno = pd.DataFrame(lista_tetna)
+tabela_tetno['PelnyCzas'] = tabela_tetno['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert('Europe/Warsaw').dt.tz_localize(None)
+
+#Wczytanie kroków
+with open('derived_com.google.step_count.delta_com.google.android.gms_estimated_steps.json', 'r', encoding='utf-8') as plik:
+    dane_kroki = load(plik)
+
+lista_krokow = []
+for punkt in dane_kroki.get("Data Points", []):
+    try:
+        lista_krokow.append({
+            "PelnyCzas": pd.to_datetime(int(punkt["startTimeNanos"]) / 1_000_000_000, unit='s'),
+            "Kroki": punkt["fitValue"][0]["value"]["intVal"]
+        })
+    except (KeyError, IndexError, ValueError):
+        continue
+
+tabela_kroki = pd.DataFrame(lista_krokow)
+tabela_kroki['PelnyCzas'] = tabela_kroki['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert('Europe/Warsaw').dt.tz_localize(None)
+
+#Obliczenia: Tętno nocne (RHR)
+dane_nocne_lista = []
+for index, wiersz in tabela_sen.iterrows():
+    maska = (tabela_tetno['PelnyCzas'] >= wiersz['start_pelny']) & (tabela_tetno['PelnyCzas'] <= wiersz['koniec_pelny'])
+    tetno_snu = tabela_tetno[maska].copy()
+    if not tetno_snu.empty:
+        tetno_snu['Data'] = wiersz['Data']
+        dane_nocne_lista.append(tetno_snu)
+
+if dane_nocne_lista:
+    dzienne_rhr = pd.concat(dane_nocne_lista, ignore_index=True).groupby('Data')['Tetno'].median().reset_index()
+    dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
+
+    dzienne_rhr['Baseline_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).mean()
+    dzienne_rhr['Odchylenie_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).std()
+    dzienne_rhr['Z_score_RHR'] = (dzienne_rhr['Nocne tętno (bpm)'] - dzienne_rhr['Baseline_RHR']) / dzienne_rhr['Odchylenie_RHR']
+    dzienne_rhr['Infekcja_RHR'] = (dzienne_rhr['Z_score_RHR'] > 2.0).astype(int)
+    dzienne_rhr['Ostrzezenie_RHR'] = ((dzienne_rhr['Z_score_RHR'] > 1.5) & (dzienne_rhr['Z_score_RHR'] <= 2.0)).astype(int)
+else:
+    dzienne_rhr = pd.DataFrame(
+        columns=['Data', 'Nocne tętno (bpm)', 'Baseline_RHR', 'Odchylenie_RHR', 'Z_score_RHR', 'Infekcja_RHR', 'Ostrzezenie_RHR'])
+
+#Obliczenia: Kroki
+tabela_kroki['Data'] = tabela_kroki['PelnyCzas'].dt.normalize()
+dzienne_kroki = tabela_kroki.groupby('Data')['Kroki'].sum().reset_index()
+dzienne_kroki.rename(columns={'Kroki': 'Liczba kroków'}, inplace=True)
+
+#Obliczenia: Algorytm HROS
+kroki_15m = tabela_kroki.set_index('PelnyCzas')[['Kroki']].resample('15min').sum()
+tetno_15m = tabela_tetno.set_index('PelnyCzas')[['Tetno']].resample('15min').mean()
+tabela_hros = pd.merge(kroki_15m, tetno_15m, left_index=True, right_index=True, how='inner')
+tabela_hros = tabela_hros[tabela_hros['Kroki'] > 10].copy()
+
+przedzialy = [10, 100, 300, 500, 1000, np.inf]
+etykiety = ['Bardzo lekki', 'Lekki', 'Umiarkowany', 'Intensywny', 'Bardzo intensywny']
+tabela_hros['Koszyk'] = pd.cut(tabela_hros['Kroki'], bins=przedzialy, labels=etykiety)
+tabela_hros = tabela_hros.sort_index()
+
+def licz_normy_koszyka(grupa):
+    grupa['Baseline_HR'] = grupa['Tetno'].rolling('28D', min_periods=7).mean()
+    grupa['Std_HR'] = grupa['Tetno'].rolling('28D', min_periods=7).std()
+    return grupa
+
+tabela_hros = tabela_hros.groupby('Koszyk', observed=True, group_keys=False).apply(licz_normy_koszyka)
+tabela_hros['Z_score_15m'] = (tabela_hros['Tetno'] - tabela_hros['Baseline_HR']) / tabela_hros['Std_HR']
+tabela_hros['Data'] = tabela_hros.index.normalize()
+
+dzienne_hros = tabela_hros.groupby('Data')['Z_score_15m'].mean().reset_index()
+dzienne_hros.rename(columns={'Z_score_15m': 'Z_score_HROS'}, inplace=True)
+
+#Łączenie w ostateczną bazę
+baza_danych = pd.merge(tabela_sen, dzienne_rhr, on='Data', how='outer')
+baza_danych = pd.merge(baza_danych, dzienne_hros, on='Data', how='outer')
+baza_danych = pd.merge(baza_danych, dzienne_kroki, on='Data', how='outer')
+
+baza_danych['Czas snu (min)'] = baza_danych['czas_snu'] // 60
+baza_danych['Data'] = pd.to_datetime(baza_danych['Data'])
+baza_danych = baza_danych.sort_values(by='Data').reset_index(drop=True)
+
+baza_danych['Infekcja_HROS'] = (baza_danych['Z_score_HROS'] > 2.0).astype(int)
+baza_danych['Ostrzezenie_HROS'] = ((baza_danych['Z_score_HROS'] > 1.5) & (baza_danych['Z_score_HROS'] <= 2.0)).astype(int)
+
+# Oczyszczanie kolumn
+sensowne_kolumny = [
+    'Data', 'Liczba kroków', 'Czas snu (min)', 'Nocne tętno (bpm)',
+    'Baseline_RHR', 'Odchylenie_RHR', 'Z_score_RHR', 'Infekcja_RHR', 'Ostrzezenie_RHR',
+    'Z_score_HROS', 'Infekcja_HROS', 'Ostrzezenie_HROS'
+]
+baza_danych = baza_danych[[kol for kol in sensowne_kolumny if kol in baza_danych.columns]]
+
+#FILTROWANIE PO DACIE
+
+data_od = '2025-01-01'
+data_do = '2026-12-31'
+
+baza_do_raportu = baza_danych.copy()
+
+if data_od:
+    baza_do_raportu = baza_do_raportu[baza_do_raportu['Data'] >= pd.to_datetime(data_od)]
+if data_do:
+    baza_do_raportu = baza_do_raportu[baza_do_raportu['Data'] <= pd.to_datetime(data_do)]
+
+#Zabezpieczenie przed pustym wynikiem
+if baza_do_raportu.empty:
+    print("Brak danych w wybranym przedziale czasowym!")
+else:
+    #Uruchomienie eksportu na przefiltrowanych danych
+    zapisz_raporty(baza_do_raportu)
