@@ -91,7 +91,7 @@ def wykres_hros(dane):
     return fig
 
 
-def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_metody, dni_wstecz=14, dni_w_przod=7):
+def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_metody, dni_wstecz=14, dni_w_przod=7, pomin_falszywe=False):
     zdarzenia = dane[(dane[kol_infekcji] == 1) | (dane[kol_ostrzezenia] == 1)]
     raport = f"=== WERYFIKACJA: {nazwa_metody} ===\n"
 
@@ -121,6 +121,10 @@ def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_meto
 
         is_choroba = (zmiana_krokow_proc <= -20)
         werdykt = "POTWIERDZONA INFEKCJA" if is_choroba else "FAŁSZYWY ALARM"
+
+        # NOWY WARUNEK: Jeśli w GUI zaznaczono ukrywanie i wykryto fałszywy alarm, funkcja przeskakuje do następnej daty
+        if pomin_falszywe and not is_choroba:
+            continue
 
         raport += f"Data: {data_zd.strftime('%Y-%m-%d')} [{typ_skoku}] | Skok o {z_score_val:.2f} std\n"
         raport += f"  -> Kroki: norma {kroki_przed:.0f} -> w trakcie {kroki_po:.0f} ({zmiana_krokow_proc:+.1f}%)\n"
@@ -172,10 +176,9 @@ def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykre
 # 2. GŁÓWNA LOGIKA (Schowana w funkcji)
 # ==========================================
 
-def generuj_tekst_raportu(dane):
-    """Zwraca sam tekst diagnozy na podstawie przefiltrowanych danych"""
-    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)")
-    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)")
+def generuj_tekst_raportu(dane, pomin_falszywe=False):
+    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)", pomin_falszywe=pomin_falszywe)
+    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)", pomin_falszywe=pomin_falszywe)
     pelny_raport = raport_rhr + raport_hros
 
     pelny_raport += "=== POTWIERDZONE OBIEMA METODAMI ===\n"
@@ -192,8 +195,7 @@ def generuj_tekst_raportu(dane):
     return pelny_raport
 
 
-def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do):
-    # Funkcja teraz tylko liczy i zwraca wynik, niczego nie drukuje ani nie zapisuje
+def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszywe=False):
     wyniki_snu = []
     for nazwa_pliku in os.listdir(folder_sen):
         if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
@@ -252,15 +254,21 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do):
         maska = (tabela_tetno['PelnyCzas'] >= wiersz['start_pelny']) & (
                     tabela_tetno['PelnyCzas'] <= wiersz['koniec_pelny'])
         tetno_snu = tabela_tetno[maska].copy()
-        if not tetno_snu.empty:
-            tetno_snu['Data'] = wiersz['Data']
-            dane_nocne_lista.append(tetno_snu)
+
+        if len(tetno_snu) > 60:
+            dolny_prog = tetno_snu['Tetno'].quantile(0.05)
+            gorny_prog = tetno_snu['Tetno'].quantile(0.95)
+            czyste_tetno = tetno_snu[(tetno_snu['Tetno'] >= dolny_prog) & (tetno_snu['Tetno'] <= gorny_prog)].copy()
+            czyste_tetno['Data'] = wiersz['Data']
+            dane_nocne_lista.append(czyste_tetno)
 
     if dane_nocne_lista:
         dzienne_rhr = pd.concat(dane_nocne_lista, ignore_index=True).groupby('Data')['Tetno'].median().reset_index()
         dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
-        dzienne_rhr['Baseline_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).mean()
-        dzienne_rhr['Odchylenie_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling(window=28, min_periods=7).std()
+        dzienne_rhr.set_index('Data', inplace=True)
+        dzienne_rhr['Baseline_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).mean()
+        dzienne_rhr['Odchylenie_RHR'] = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).std()
+        dzienne_rhr.reset_index(inplace=True)
         dzienne_rhr['Z_score_RHR'] = (dzienne_rhr['Nocne tętno (bpm)'] - dzienne_rhr['Baseline_RHR']) / dzienne_rhr[
             'Odchylenie_RHR']
         dzienne_rhr['Infekcja_RHR'] = (dzienne_rhr['Z_score_RHR'] > 2.0).astype(int)
@@ -321,9 +329,8 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do):
     if data_do:
         baza_do_raportu = baza_do_raportu[baza_do_raportu['Data'] <= pd.to_datetime(data_do)]
 
-    raport_tekstowy = generuj_tekst_raportu(baza_do_raportu)
+    raport_tekstowy = generuj_tekst_raportu(baza_do_raportu, pomin_falszywe)
 
-    # Funkcja zwraca teraz krotkę (tuple) ze zmiennymi do użycia w GUI
     return baza_do_raportu, raport_tekstowy
 
 
@@ -334,7 +341,7 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do):
 class Aplikacja(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Analiza Danych - Wykrywanie Anomalii (Google Fit)")
+        self.title("Wykrywanie infekcji na podstawie tętna (RHR & HROS)")
         # Powiększone okno, żeby pomieścić wykresy obok tekstu
         self.geometry("1300x750")
 
@@ -366,6 +373,11 @@ class Aplikacja(ctk.CTk):
         self.label_folder_akt.grid(row=1, column=1, padx=10, pady=10, sticky="w")
 
         # --- PANEL ŚRODKOWY (Kalendarze i Przyciski akcji) ---
+
+
+
+
+
         self.frame_daty = ctk.CTkFrame(self)
         self.frame_daty.pack(pady=10, padx=20, fill="x")
 
@@ -378,6 +390,14 @@ class Aplikacja(ctk.CTk):
         self.kalendarz_do = DateEntry(self.frame_daty, width=12, background='black', foreground='white', borderwidth=2,
                                       date_pattern='y-mm-dd')
         self.kalendarz_do.pack(side="left", padx=5)
+
+        self.ukryj_falszywe_var = ctk.IntVar(value=0)
+
+        # Checkbox z podpiętą zmienną
+        self.check_falszywe = ctk.CTkCheckBox(self.frame_daty, text="Ukryj fałszywe alarmy w raporcie",
+                                              variable=self.ukryj_falszywe_var)
+        self.check_falszywe.pack(side="left", padx=10, pady=10)
+
 
         # Fioletowy przycisk analizy
         self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom Analizę", command=self.start_analizy,
@@ -438,14 +458,18 @@ class Aplikacja(ctk.CTk):
         data_od_str = self.kalendarz_od.get()
         data_do_str = self.kalendarz_do.get()
 
+        # Pobieramy stan z checkboxa w GUI
+        pomin_falszywe_stan = bool(self.ukryj_falszywe_var.get())
+
         self.pole_tekstowe.delete("1.0", ctk.END)
         self.pole_tekstowe.insert(ctk.END, "Trwa analizowanie danych... (Może to zająć chwilę)\n")
         self.btn_zapisz.configure(state="disabled")
         self.update()
 
         try:
+            # Przekazujemy zmienną z checkboxa do głównej funkcji analizującej
             self.zapisana_baza, self.zapisany_raport_tekst = uruchom_analize(
-                self.folder_sen_sciezka, self.folder_aktywnosc_sciezka, data_od_str, data_do_str
+                self.folder_sen_sciezka, self.folder_aktywnosc_sciezka, data_od_str, data_do_str, pomin_falszywe_stan
             )
 
             if self.zapisana_baza.empty:
@@ -454,9 +478,39 @@ class Aplikacja(ctk.CTk):
                 self.pole_tekstowe.delete("1.0", ctk.END)
                 self.pole_tekstowe.insert(ctk.END, self.zapisany_raport_tekst)
 
-                # Generowanie i osadzanie wykresów w oknie głównym
-                self.fig_rhr = wykres_rhr(self.zapisana_baza)
-                self.fig_hros = wykres_hros(self.zapisana_baza)
+                baza_do_wykresow = self.zapisana_baza.copy()
+
+                if pomin_falszywe_stan:
+                    for prefiks in ['RHR', 'HROS']:
+                        kol_inf = f'Infekcja_{prefiks}'
+                        kol_ostrz = f'Ostrzezenie_{prefiks}'
+
+
+                        for idx, wiersz in baza_do_wykresow[
+                            (baza_do_wykresow[kol_inf] == 1) | (baza_do_wykresow[kol_ostrz] == 1)].iterrows():
+                            data_zd = wiersz['Data']
+
+                            # Wyliczamy okna czasowe tak samo jak w tekście (14 dni wstecz, 7 dni w przód)
+                            okno_przed = self.zapisana_baza[
+                                (self.zapisana_baza['Data'] >= data_zd - pd.Timedelta(days=14)) & (
+                                            self.zapisana_baza['Data'] < data_zd)]
+                            okno_po = self.zapisana_baza[(self.zapisana_baza['Data'] >= data_zd) & (
+                                        self.zapisana_baza['Data'] <= data_zd + pd.Timedelta(days=7))]
+
+                            kroki_przed = okno_przed['Liczba kroków'].mean()
+                            kroki_po = okno_po['Liczba kroków'].mean()
+
+                            if pd.notna(kroki_przed) and pd.notna(kroki_po) and kroki_przed > 0:
+                                spadek_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100
+
+                                # Jeśli spadek aktywności był mniejszy niż 20% (czyli np. -10% albo +5%), to zdejmujemy flagę
+                                if spadek_proc > -20:
+                                    baza_do_wykresow.at[idx, kol_inf] = 0
+                                    baza_do_wykresow.at[idx, kol_ostrz] = 0
+
+
+                self.fig_rhr = wykres_rhr(baza_do_wykresow)
+                self.fig_hros = wykres_hros(baza_do_wykresow)
 
                 self.rysuj_wykres_w_zakladce(self.fig_rhr, self.tab_rhr)
                 self.rysuj_wykres_w_zakladce(self.fig_hros, self.tab_hros)
