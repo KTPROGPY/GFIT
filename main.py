@@ -171,7 +171,6 @@ def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykre
     # Zwracamy wygenerowany tekst, aby wyświetlić go w oknie GUI
     return pelny_raport
 
-
 # ==========================================
 # 2. GŁÓWNA LOGIKA (Schowana w funkcji)
 # ==========================================
