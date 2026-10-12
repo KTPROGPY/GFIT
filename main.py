@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox
 from tkcalendar import DateEntry
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+
 # Ustawienia wyglądu GUI (Dark Mode)
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -176,23 +177,74 @@ def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykre
 # ==========================================
 
 def generuj_tekst_raportu(dane, pomin_falszywe=False):
-    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)", pomin_falszywe=pomin_falszywe)
-    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)", pomin_falszywe=pomin_falszywe)
+    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)",
+                                  pomin_falszywe=pomin_falszywe)
+    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)",
+                                   pomin_falszywe=pomin_falszywe)
     pelny_raport = raport_rhr + raport_hros
 
     pelny_raport += "=== POTWIERDZONE OBIEMA METODAMI ===\n"
-    filtr_RHR = (dane['Infekcja_RHR'] == 1) | (dane['Ostrzezenie_RHR'] == 1)
-    filtr_HROS = (dane['Infekcja_HROS'] == 1) | (dane['Ostrzezenie_HROS'] == 1)
 
-    wspolne_infekcje = dane[filtr_RHR & filtr_HROS]
+    dane_do_wspolnych = dane.copy()
+
+    if pomin_falszywe:
+        for prefiks in ['RHR', 'HROS']:
+            kol_inf = f'Infekcja_{prefiks}'
+            kol_ostrz = f'Ostrzezenie_{prefiks}'
+
+            for idx, wiersz in dane_do_wspolnych[
+                (dane_do_wspolnych[kol_inf] == 1) | (dane_do_wspolnych[kol_ostrz] == 1)].iterrows():
+                data_zd = wiersz['Data']
+                okno_przed = dane_do_wspolnych[(dane_do_wspolnych['Data'] >= data_zd - pd.Timedelta(days=14)) & (
+                            dane_do_wspolnych['Data'] < data_zd)]
+                okno_po = dane_do_wspolnych[(dane_do_wspolnych['Data'] >= data_zd) & (
+                            dane_do_wspolnych['Data'] <= data_zd + pd.Timedelta(days=7))]
+
+                if okno_przed.empty or okno_po.empty:
+                    dane_do_wspolnych.at[idx, kol_inf] = 0
+                    dane_do_wspolnych.at[idx, kol_ostrz] = 0
+                    continue
+
+                kroki_przed = okno_przed['Liczba kroków'].mean()
+                kroki_po = okno_po['Liczba kroków'].mean()
+
+                if pd.isna(kroki_przed) or pd.isna(kroki_po) or kroki_przed <= 0:
+                    dane_do_wspolnych.at[idx, kol_inf] = 0
+                    dane_do_wspolnych.at[idx, kol_ostrz] = 0
+                else:
+                    spadek_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100
+                    if spadek_proc > -20:
+                        dane_do_wspolnych.at[idx, kol_inf] = 0
+                        dane_do_wspolnych.at[idx, kol_ostrz] = 0
+
+    filtr_RHR = (dane_do_wspolnych['Infekcja_RHR'] == 1) | (dane_do_wspolnych['Ostrzezenie_RHR'] == 1)
+    filtr_HROS = (dane_do_wspolnych['Infekcja_HROS'] == 1) | (dane_do_wspolnych['Ostrzezenie_HROS'] == 1)
+
+    wspolne_infekcje = dane_do_wspolnych[filtr_RHR & filtr_HROS]
+
     if wspolne_infekcje.empty:
         pelny_raport += "Brak wspólnych dni.\n"
     else:
         for index, wiersz in wspolne_infekcje.iterrows():
-            pelny_raport += f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} - Niepokojący skok w obu algorytmach!\n"
+            data_zd = wiersz['Data']
+
+            # Weryfikacja aktywności dla wspólnego podsumowania (czyta z surowych danych, aby zawsze podać poprawny werdykt)
+            okno_przed = dane[(dane['Data'] >= data_zd - pd.Timedelta(days=14)) & (dane['Data'] < data_zd)]
+            okno_po = dane[(dane['Data'] >= data_zd) & (dane['Data'] <= data_zd + pd.Timedelta(days=7))]
+
+            is_choroba = False
+            if not okno_przed.empty and not okno_po.empty:
+                kroki_przed = okno_przed['Liczba kroków'].mean()
+                kroki_po = okno_po['Liczba kroków'].mean()
+                if pd.notna(kroki_przed) and pd.notna(kroki_po) and kroki_przed > 0:
+                    spadek_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100
+                    if spadek_proc <= -20:
+                        is_choroba = True
+
+            werdykt = "POTWIERDZONA INFEKCJA" if is_choroba else "FAŁSZYWY ALARM (brak spadku aktywności)"
+            pelny_raport += f"Data: {data_zd.strftime('%Y-%m-%d')} | Zgodność obu wskaźników\n  -> {werdykt}\n\n"
 
     return pelny_raport
-
 
 def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszywe=False):
     wyniki_snu = []
@@ -300,7 +352,7 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
     tabela_hros = tabela_hros.groupby('Koszyk', observed=True, group_keys=False).apply(licz_normy_koszyka)
     tabela_hros['Z_score_15m'] = (tabela_hros['Tetno'] - tabela_hros['Baseline_HR']) / tabela_hros['Std_HR']
     tabela_hros['Data'] = tabela_hros.index.normalize()
-    dzienne_hros = tabela_hros.groupby('Data')['Z_score_15m'].mean().reset_index()
+    dzienne_hros = tabela_hros.groupby('Data')['Z_score_15m'].max().reset_index()
     dzienne_hros.rename(columns={'Z_score_15m': 'Z_score_HROS'}, inplace=True)
 
     baza_danych = pd.merge(tabela_sen, dzienne_rhr, on='Data', how='outer')
