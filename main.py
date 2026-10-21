@@ -4,12 +4,15 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.backends.backend_pdf import PdfPages
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from tkcalendar import DateEntry
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import tkinter.ttk as ttk
 
+# Ustawienia wyglądu GUI (Dark Mode)
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -29,8 +32,7 @@ def wykres_rhr(dane):
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Nocne tętno (bpm)'], label='Nocne tętno (bpm)', marker='o',
             color='tab:blue', zorder=3, alpha=0.6)
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Baseline_RHR'], label='Średnia krocząca (28 dni)', color='green',
-            zorder=2,
-            linewidth=2)
+            zorder=2, linewidth=2)
 
     infekcje_rhr = czyste_dane[czyste_dane['Infekcja_RHR'] == 1]
     ax.scatter(infekcje_rhr['Data_tekst'], infekcje_rhr['Nocne tętno (bpm)'], color='red', s=40, zorder=5,
@@ -50,7 +52,6 @@ def wykres_rhr(dane):
     plt.title('Detekcja infekcji na podstawie nocnego tętna spoczynkowego (RHR)')
 
     plt.tight_layout(pad=2.0)
-
     return fig
 
 
@@ -65,8 +66,8 @@ def wykres_hros(dane):
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Z_score_HROS'], label='Wskaźnik anomalii HROS', marker='o',
             color='tab:purple', zorder=3, alpha=0.6)
 
-    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie')
-    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja')
+    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie (15% dnia w anomalii)')
+    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja (20% dnia w anomalii)')
 
     infekcje_hros = czyste_dane[czyste_dane['Infekcja_HROS'] == 1]
     ax.scatter(infekcje_hros['Data_tekst'], infekcje_hros['Z_score_HROS'], color='red', s=40, zorder=5)
@@ -84,7 +85,52 @@ def wykres_hros(dane):
     plt.title('Detekcja infekcji metodą HROS (Tylko w spoczynku)')
 
     plt.tight_layout(pad=2.0)
+    return fig
 
+
+def wykres_heatmap(dane):
+    if dane.empty:
+        return None
+
+    d = dane.copy()
+
+    d['Tydzien'] = d['Data'].dt.to_period('W').apply(lambda r: r.start_time)
+    agregacja = d.groupby('Tydzien').agg({
+        'Gestosc_HR': 'sum',
+        'Gestosc_Kroki': 'sum',
+        'Czas snu (min)': 'sum'
+    }).reset_index()
+
+    daty = agregacja['Tydzien'].dt.strftime('%Y-%m-%d').tolist()
+
+    hr = agregacja['Gestosc_HR'].fillna(0).values
+    kroki = agregacja['Gestosc_Kroki'].fillna(0).values
+    sen = agregacja['Czas snu (min)'].fillna(0).values
+
+    hr_norm = hr / hr.max() if hr.max() > 0 else hr
+    kroki_norm = kroki / kroki.max() if kroki.max() > 0 else kroki
+    sen_norm = sen / sen.max() if sen.max() > 0 else sen
+
+    matrix = np.vstack((hr_norm, kroki_norm, sen_norm))
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    kolory_mapy = LinearSegmentedColormap.from_list('dostepnosc', ['#111111', '#e8cc17', '#28a821'])
+    cax = ax.imshow(matrix, aspect='auto', cmap=kolory_mapy, interpolation='nearest', vmin=0, vmax=1)
+
+    cbar = fig.colorbar(cax, ticks=[0, 0.5, 1], orientation='vertical')
+    cbar.ax.set_yticklabels(['Brak danych', 'Częściowe', 'Pełne'])
+
+    ax.set_yticks([0, 1, 2])
+    ax.set_yticklabels(['Tętno (pom.)', 'Kroki (pom.)', 'Sen (czas)'])
+
+    num_dates = len(daty)
+    step = max(1, num_dates // 15)
+    ax.set_xticks(np.arange(0, num_dates, step))
+    ax.set_xticklabels([daty[i] for i in range(0, num_dates, step)], rotation=45, ha='right')
+
+    plt.title('Heatmapa dostępności danych')
+    plt.tight_layout()
     return fig
 
 
@@ -169,7 +215,7 @@ def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykre
 
 
 # ==========================================
-# 2. GŁÓWNA LOGIKA (Schowana w funkcji)
+# 2. GŁÓWNA LOGIKA
 # ==========================================
 
 def generuj_tekst_raportu(dane, pomin_falszywe=False):
@@ -223,7 +269,6 @@ def generuj_tekst_raportu(dane, pomin_falszywe=False):
     else:
         for index, wiersz in wspolne_infekcje.iterrows():
             data_zd = wiersz['Data']
-
             okno_przed = dane[(dane['Data'] >= data_zd - pd.Timedelta(days=14)) & (dane['Data'] < data_zd)]
             okno_po = dane[(dane['Data'] >= data_zd) & (dane['Data'] <= data_zd + pd.Timedelta(days=7))]
 
@@ -242,8 +287,7 @@ def generuj_tekst_raportu(dane, pomin_falszywe=False):
     return pelny_raport
 
 
-def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszywe=False):
-    # --- WCZYTYWANIE I CZYSZCZENIE DANYCH ---
+def wczytaj_surowe_dane(folder_sen, folder_aktywnosc):
     wyniki_snu = []
     for nazwa_pliku in os.listdir(folder_sen):
         if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
@@ -281,6 +325,7 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
     tabela_tetno['PelnyCzas'] = tabela_tetno['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert(
         'Europe/Warsaw').dt.tz_localize(None)
     tabela_tetno = tabela_tetno.drop_duplicates(subset=['PelnyCzas']).reset_index(drop=True)
+    tabela_tetno['Data'] = tabela_tetno['PelnyCzas'].dt.normalize()
 
     sciezka_kroki = os.path.join(folder_aktywnosc,
                                  'derived_com.google.step_count.delta_com.google.android.gms_estimated_steps.json')
@@ -300,8 +345,16 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
     tabela_kroki['PelnyCzas'] = tabela_kroki['PelnyCzas'].dt.tz_localize('UTC').dt.tz_convert(
         'Europe/Warsaw').dt.tz_localize(None)
     tabela_kroki = tabela_kroki.drop_duplicates(subset=['PelnyCzas']).reset_index(drop=True)
+    tabela_kroki['Data'] = tabela_kroki['PelnyCzas'].dt.normalize()
 
-    # --- OBLICZANIE RHR (Z USUNIĘCIEM SKAŻENIA) ---
+    return tabela_sen, tabela_tetno, tabela_kroki
+
+
+def uruchom_analize_z_cache(tabela_sen, tabela_tetno, tabela_kroki, data_od, data_do, pomin_falszywe=False):
+    liczba_hr = tabela_tetno.groupby('Data').size().reset_index(name='Gestosc_HR')
+    dzienne_hr = tabela_tetno.groupby('Data')['Tetno'].mean().reset_index(name='Srednie_dzienne_HR')
+    liczba_kroki = tabela_kroki.groupby('Data').size().reset_index(name='Gestosc_Kroki')
+
     dane_nocne_lista = []
     for index, wiersz in tabela_sen.iterrows():
         maska = (tabela_tetno['PelnyCzas'] >= wiersz['start_pelny']) & (
@@ -320,11 +373,9 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
         dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
         dzienne_rhr.set_index('Data', inplace=True)
 
-        # POPRAWKA 1: Usuwanie zanieczyszczenia linii bazowej (dwuetapowe wyliczanie)
         base_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).mean()
         std_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).std()
         z_temp = (dzienne_rhr['Nocne tętno (bpm)'] - base_temp) / std_temp
-
         czyste_tetno_rhr = dzienne_rhr['Nocne tętno (bpm)'].mask(z_temp > 2.0)
 
         dzienne_rhr['Baseline_RHR'] = czyste_tetno_rhr.rolling('28D', min_periods=7).mean()
@@ -341,8 +392,6 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
             columns=['Data', 'Nocne tętno (bpm)', 'Baseline_RHR', 'Odchylenie_RHR', 'Z_score_RHR', 'Infekcja_RHR',
                      'Ostrzezenie_RHR'])
 
-    # --- OBLICZANIE HROS (SPOCZYNEK I PROCENT DNIA) ---
-    tabela_kroki['Data'] = tabela_kroki['PelnyCzas'].dt.normalize()
     dzienne_kroki = tabela_kroki.groupby('Data')['Kroki'].sum().reset_index()
     dzienne_kroki.rename(columns={'Kroki': 'Liczba kroków'}, inplace=True)
 
@@ -356,7 +405,6 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
     tabela_hros['Koszyk'] = pd.cut(tabela_hros['Kroki'], bins=przedzialy, labels=etykiety)
     tabela_hros = tabela_hros.sort_index()
 
-    # POPRAWKA 2: Analiza wyłącznie interwałów niskiej aktywności
     tabela_hros_spoczynek = tabela_hros[tabela_hros['Koszyk'] == 'Bardzo lekki'].copy()
 
     def licz_normy_koszyka(grupa):
@@ -374,22 +422,21 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
             licz_normy_koszyka)
         tabela_hros_spoczynek['Z_score_15m'] = (tabela_hros_spoczynek['Tetno'] - tabela_hros_spoczynek['Baseline_HR']) / \
                                                tabela_hros_spoczynek['Std_HR']
-
-        # POPRAWKA 3: Agregacja anomalii jako procent zakażonych interwałów w ciągu dnia
         tabela_hros_spoczynek['Anomalia_15m'] = (tabela_hros_spoczynek['Z_score_15m'] > 2.0).astype(int)
         tabela_hros_spoczynek['Data'] = tabela_hros_spoczynek.index.normalize()
 
         dzienne_hros = tabela_hros_spoczynek.groupby('Data')['Anomalia_15m'].mean().reset_index()
         dzienne_hros.rename(columns={'Anomalia_15m': 'Procent_anomalii_HROS'}, inplace=True)
-        # Skalujemy procenty pod wykres (np. 15% dnia = 1.5, 20% dnia = 2.0)
         dzienne_hros['Z_score_HROS'] = dzienne_hros['Procent_anomalii_HROS'] * 10
     else:
         dzienne_hros = pd.DataFrame(columns=['Data', 'Procent_anomalii_HROS', 'Z_score_HROS'])
 
-    # --- ŁĄCZENIE DANYCH ---
     baza_danych = pd.merge(tabela_sen, dzienne_rhr, on='Data', how='outer')
     baza_danych = pd.merge(baza_danych, dzienne_hros, on='Data', how='outer')
     baza_danych = pd.merge(baza_danych, dzienne_kroki, on='Data', how='outer')
+    baza_danych = pd.merge(baza_danych, dzienne_hr, on='Data', how='outer')
+    baza_danych = pd.merge(baza_danych, liczba_hr, on='Data', how='outer')
+    baza_danych = pd.merge(baza_danych, liczba_kroki, on='Data', how='outer')
 
     baza_danych['Czas snu (min)'] = baza_danych['czas_snu'] // 60
     baza_danych['Data'] = pd.to_datetime(baza_danych['Data'])
@@ -401,12 +448,14 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
 
     sensowne_kolumny = [
         'Data', 'Liczba kroków', 'Czas snu (min)', 'Nocne tętno (bpm)',
-        'Baseline_RHR', 'Odchylenie_RHR', 'Z_score_RHR', 'Infekcja_RHR', 'Ostrzezenie_RHR',
-        'Z_score_HROS', 'Infekcja_HROS', 'Ostrzezenie_HROS'
+        'Baseline_RHR', 'Odchylenie_RHR', 'Srednie_dzienne_HR', 'Z_score_RHR', 'Infekcja_RHR', 'Ostrzezenie_RHR',
+        'Z_score_HROS', 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Gestosc_HR', 'Gestosc_Kroki'
     ]
     baza_danych = baza_danych[[kol for kol in sensowne_kolumny if kol in baza_danych.columns]]
 
+    baza_pelna = baza_danych.copy()
     baza_do_raportu = baza_danych.copy()
+
     if data_od:
         baza_do_raportu = baza_do_raportu[baza_do_raportu['Data'] >= pd.to_datetime(data_od)]
     if data_do:
@@ -414,7 +463,25 @@ def uruchom_analize(folder_sen, folder_aktywnosc, data_od, data_do, pomin_falszy
 
     raport_tekstowy = generuj_tekst_raportu(baza_do_raportu, pomin_falszywe)
 
-    return baza_do_raportu, raport_tekstowy
+    return baza_pelna, baza_do_raportu, raport_tekstowy
+
+
+def stylizuj_tabele():
+    style = ttk.Style()
+    style.theme_use("clam")
+    style.configure("Treeview",
+                    background="#2b2b2b",
+                    foreground="white",
+                    fieldbackground="#2b2b2b",
+                    borderwidth=0)
+    style.configure("Treeview.Heading",
+                    background="#1f1f1f",
+                    foreground="white",
+                    relief="flat",
+                    font=("Arial", 10, "bold"))
+    style.map("Treeview",
+              background=[('selected', '#1f538d')],
+              foreground=[('selected', 'white')])
 
 
 # ==========================================
@@ -427,10 +494,18 @@ class Aplikacja(ctk.CTk):
         self.title("Wykrywanie infekcji na podstawie tętna (RHR & HROS)")
         self.geometry("1300x750")
 
+        stylizuj_tabele()
+
         self.folder_sen_sciezka = ""
         self.folder_aktywnosc_sciezka = ""
 
+        self.cache_sen = None
+        self.cache_tetno = None
+        self.cache_kroki = None
+
+        self.pelna_baza = None
         self.zapisana_baza = None
+
         self.zapisany_raport_tekst = ""
         self.fig_rhr = None
         self.fig_hros = None
@@ -467,17 +542,25 @@ class Aplikacja(ctk.CTk):
 
         self.ukryj_falszywe_var = ctk.IntVar(value=0)
 
-        self.check_falszywe = ctk.CTkCheckBox(self.frame_daty, text="Ukryj fałszywe alarmy w raporcie",
+        self.check_falszywe = ctk.CTkCheckBox(self.frame_daty, text="Ukryj fałszywe alarmy",
                                               variable=self.ukryj_falszywe_var)
         self.check_falszywe.pack(side="left", padx=10, pady=10)
 
         self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom Analizę", command=self.start_analizy,
                                           fg_color="#7a0099", hover_color="#5c0073")
-        self.btn_analizuj.pack(side="left", padx=20, pady=10)
+        self.btn_analizuj.pack(side="left", padx=10, pady=10)
+
+        self.btn_skanuj = ctk.CTkButton(self.frame_daty, text="Sprawdź dane", command=self.sprawdz_dane,
+                                        fg_color="#d97706", hover_color="#b45309")
+        self.btn_skanuj.pack(side="left", padx=10, pady=10)
 
         self.btn_zapisz = ctk.CTkButton(self.frame_daty, text="Generuj PDF/CSV", command=self.generuj_pliki,
                                         fg_color="green", state="disabled")
         self.btn_zapisz.pack(side="right", padx=10, pady=10)
+
+        self.btn_heatmap = ctk.CTkButton(self.frame_daty, text="Pokaż dane", command=self.pokaz_okno_danych,
+                                         fg_color="#0055ff", state="disabled")
+        self.btn_heatmap.pack(side="right", padx=10, pady=10)
 
         self.frame_dolny = ctk.CTkFrame(self)
         self.frame_dolny.pack(pady=10, padx=20, fill="both", expand=True)
@@ -491,6 +574,8 @@ class Aplikacja(ctk.CTk):
 
         self.zakladki = ctk.CTkTabview(self.frame_dolny)
         self.zakladki.pack(side="right", fill="both", expand=True)
+
+        self.tab_dane = self.zakladki.add("Wszystkie Dane")
         self.tab_rhr = self.zakladki.add("Wykres RHR")
         self.tab_hros = self.zakladki.add("Wykres HROS")
 
@@ -499,12 +584,75 @@ class Aplikacja(ctk.CTk):
         if folder:
             self.folder_sen_sciezka = folder
             self.label_folder_sen.configure(text=folder)
+            self.cache_sen = None
 
     def wybierz_folder_aktywnosci(self):
         folder = filedialog.askdirectory(title="Wybierz folder z danymi o krokach i tętnie")
         if folder:
             self.folder_aktywnosc_sciezka = folder
             self.label_folder_akt.configure(text=folder)
+            self.cache_tetno = None
+            self.cache_kroki = None
+
+    def sprawdz_dane(self):
+        if not self.folder_sen_sciezka or not self.folder_aktywnosc_sciezka:
+            messagebox.showwarning("Błąd", "Wybierz najpierw OBA foldery z danymi!")
+            return
+
+        try:
+            self.pole_tekstowe.delete("1.0", ctk.END)
+            self.pole_tekstowe.insert(ctk.END, "Sprawdzanie folderów i wczytywanie danych...\n")
+            self.update()
+
+            self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(
+                self.folder_sen_sciezka, self.folder_aktywnosc_sciezka
+            )
+
+            if self.cache_sen.empty:
+                messagebox.showwarning("Uwaga", "Nie znaleziono danych o śnie.")
+                return
+
+            wszystkie_daty = []
+            if not self.cache_sen.empty:
+                wszystkie_daty.append(self.cache_sen['Data'].min())
+                wszystkie_daty.append(self.cache_sen['Data'].max())
+            if not self.cache_tetno.empty:
+                wszystkie_daty.append(self.cache_tetno['Data'].min())
+                wszystkie_daty.append(self.cache_tetno['Data'].max())
+            if not self.cache_kroki.empty:
+                wszystkie_daty.append(self.cache_kroki['Data'].min())
+                wszystkie_daty.append(self.cache_kroki['Data'].max())
+
+            min_data = min(wszystkie_daty)
+            max_data = max(wszystkie_daty)
+
+            self.kalendarz_od.set_date(min_data)
+            self.kalendarz_do.set_date(max_data)
+
+            liczba_hr = self.cache_tetno.groupby('Data').size().reset_index(name='Gestosc_HR')
+            liczba_kroki = self.cache_kroki.groupby('Data').size().reset_index(name='Gestosc_Kroki')
+            dzienne_kroki = self.cache_kroki.groupby('Data')['Kroki'].sum().reset_index(name='Liczba kroków')
+
+            self.pelna_baza = pd.merge(
+                self.cache_sen[['Data', 'czas_snu']].rename(columns={'czas_snu': 'Czas snu (min)'}), liczba_hr,
+                on='Data', how='outer')
+            self.pelna_baza = pd.merge(self.pelna_baza, liczba_kroki, on='Data', how='outer')
+            self.pelna_baza = pd.merge(self.pelna_baza, dzienne_kroki, on='Data', how='outer')
+            self.pelna_baza['Czas snu (min)'] = self.pelna_baza['Czas snu (min)'] // 60
+            self.pelna_baza['Data'] = pd.to_datetime(self.pelna_baza['Data'])
+            self.pelna_baza = self.pelna_baza.sort_values(by='Data').reset_index(drop=True)
+
+            self.btn_heatmap.configure(state="normal")
+
+            self.pole_tekstowe.delete("1.0", ctk.END)
+            self.pole_tekstowe.insert(ctk.END, f"Sprawdzanie zakończone pomyślnie!\n\n")
+            self.pole_tekstowe.insert(ctk.END,
+                                      f"Wykryto zakres od: {min_data.strftime('%Y-%m-%d')} do: {max_data.strftime('%Y-%m-%d')}\n")
+            self.pole_tekstowe.insert(ctk.END,
+                                      "Kalendarz został zaktualizowany. Kliknij 'Pokaż dane', żeby zobaczyć wczytane dane i ich wizualizację.\n")
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Wystąpił problem podczas sprawdzania danych:\n{str(e)}")
 
     def rysuj_wykres_w_zakladce(self, fig, zakladka):
         for widget in zakladka.winfo_children():
@@ -514,6 +662,136 @@ class Aplikacja(ctk.CTk):
             canvas = FigureCanvasTkAgg(fig, master=zakladka)
             canvas.draw()
             canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def wypelnij_tabele_danych(self, dane, zakladka):
+        for widget in zakladka.winfo_children():
+            widget.destroy()
+
+        kolumny = ("Data", "Kroki (dzienne)", "Sen (min)", "Średnie tętno dzienne (bpm)", "Nocne RHR (bpm)",
+                   "Norma RHR (28d)", "Odchylenie RHR", "Wskaźnik HROS")
+
+        tabela = ttk.Treeview(zakladka, columns=kolumny, show="headings", height=15)
+
+        for kol in kolumny:
+            tabela.heading(kol, text=kol)
+            tabela.column(kol, width=110, anchor="center")
+
+        tabela.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+
+        pasek = ttk.Scrollbar(zakladka, orient="vertical", command=tabela.yview)
+        tabela.configure(yscroll=pasek.set)
+        pasek.pack(side="right", fill="y", padx=(0, 10), pady=10)
+
+        if dane is not None and not dane.empty:
+            for idx, wiersz in dane.iterrows():
+                dt = wiersz['Data'].strftime('%Y-%m-%d')
+                kroki = f"{wiersz['Liczba kroków']:.0f}" if pd.notna(wiersz['Liczba kroków']) else "-"
+                sen = f"{wiersz['Czas snu (min)']:.0f}" if pd.notna(wiersz['Czas snu (min)']) else "-"
+                sr_dzienne = f"{wiersz['Srednie_dzienne_HR']:.1f}" if pd.notna(wiersz['Srednie_dzienne_HR']) else "-"
+                rhr = f"{wiersz['Nocne tętno (bpm)']:.1f}" if pd.notna(wiersz['Nocne tętno (bpm)']) else "-"
+                norma = f"{wiersz['Baseline_RHR']:.1f}" if pd.notna(wiersz['Baseline_RHR']) else "-"
+                odchyl_rhr = f"{wiersz['Odchylenie_RHR']:.2f}" if pd.notna(wiersz['Odchylenie_RHR']) else "-"
+                hros = f"{wiersz['Z_score_HROS']:.2f}" if pd.notna(wiersz['Z_score_HROS']) else "-"
+
+                tabela.insert("", "end", values=(dt, kroki, sen, sr_dzienne, rhr, norma, odchyl_rhr, hros))
+
+    def pokaz_okno_danych(self):
+        if self.pelna_baza is None or self.pelna_baza.empty:
+            return
+
+        okno = ctk.CTkToplevel(self)
+        okno.title("Podgląd Wczytanych Danych i Wizualizacja")
+        okno.geometry("1250x800")
+        okno.attributes("-topmost", True)
+
+        zakladki_okna = ctk.CTkTabview(okno)
+        zakladki_okna.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tab_heatmap = zakladki_okna.add("Heatmapa dostępności danych")
+        tab_tetno = zakladki_okna.add("Tętno")
+        tab_kroki = zakladki_okna.add("Kroki")
+        tab_sen = zakladki_okna.add("Sen")
+
+        # 1. Zakładka z Heatmapą
+        fig = wykres_heatmap(self.pelna_baza)
+        if fig:
+            canvas = FigureCanvasTkAgg(fig, master=tab_heatmap)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+        # 2. Zakładka z tętnem
+        frame_tetno = ctk.CTkFrame(tab_tetno)
+        frame_tetno.pack(fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(frame_tetno, text="Punkty pomiarowe tętna z pliku JSON:", font=("Arial", 13, "bold")).pack(
+            anchor="w", padx=10, pady=(5, 5))
+
+        tabela_t = ttk.Treeview(frame_tetno, columns=("Czas", "Wartość (BPM)"), show="headings", height=25)
+        tabela_t.heading("Czas", text="Data i godzina pomiaru")
+        tabela_t.heading("Wartość (BPM)", text="Tętno (BPM)")
+        tabela_t.column("Czas", width=300, anchor="center")
+        tabela_t.column("Wartość (BPM)", width=200, anchor="center")
+        tabela_t.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+
+        pasek_t = ttk.Scrollbar(frame_tetno, orient="vertical", command=tabela_t.yview)
+        tabela_t.configure(yscroll=pasek_t.set)
+        pasek_t.pack(side="right", fill="y", padx=(0, 10), pady=10)
+
+        if self.cache_tetno is not None and not self.cache_tetno.empty:
+            for idx, wiersz in self.cache_tetno.head(5000).iterrows():
+                tabela_t.insert("", "end",
+                                values=(wiersz['PelnyCzas'].strftime('%Y-%m-%d %H:%M:%S'), f"{wiersz['Tetno']:.1f}"))
+
+        # 3. Zakładka z krokami
+        frame_kroki = ctk.CTkFrame(tab_kroki)
+        frame_kroki.pack(fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(frame_kroki, text="Wpisy kroków z pliku JSON:", font=("Arial", 13, "bold")).pack(anchor="w",
+                                                                                                      padx=10,
+                                                                                                      pady=(5, 5))
+
+        tabela_k = ttk.Treeview(frame_kroki, columns=("Czas", "Kroki"), show="headings", height=25)
+        tabela_k.heading("Czas", text="Data i godzina pomiaru")
+        tabela_k.heading("Kroki", text="Liczba kroków")
+        tabela_k.column("Czas", width=300, anchor="center")
+        tabela_k.column("Kroki", width=200, anchor="center")
+        tabela_k.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+
+        pasek_k = ttk.Scrollbar(frame_kroki, orient="vertical", command=tabela_k.yview)
+        tabela_k.configure(yscroll=pasek_k.set)
+        pasek_k.pack(side="right", fill="y", padx=(0, 10), pady=10)
+
+        if self.cache_kroki is not None and not self.cache_kroki.empty:
+            for idx, wiersz in self.cache_kroki.head(5000).iterrows():
+                tabela_k.insert("", "end",
+                                values=(wiersz['PelnyCzas'].strftime('%Y-%m-%d %H:%M:%S'), f"{wiersz['Kroki']}"))
+
+        # 4. Zakładka ze snem
+        frame_sen = ctk.CTkFrame(tab_sen)
+        frame_sen.pack(fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(frame_sen, text="Sesje snu z plików JSON:", font=("Arial", 13, "bold")).pack(anchor="w", padx=10,
+                                                                                                  pady=(5, 5))
+
+        tabela_s = ttk.Treeview(frame_sen, columns=("Start", "Koniec", "Czas trwania (min)"), show="headings",
+                                height=25)
+        tabela_s.heading("Start", text="Początek snu")
+        tabela_s.heading("Koniec", text="Koniec snu")
+        tabela_s.heading("Czas trwania (min)", text="Czas trwania (min)")
+        tabela_s.column("Start", width=250, anchor="center")
+        tabela_s.column("Koniec", width=250, anchor="center")
+        tabela_s.column("Czas trwania (min)", width=200, anchor="center")
+        tabela_s.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+
+        pasek_s = ttk.Scrollbar(frame_sen, orient="vertical", command=tabela_s.yview)
+        tabela_s.configure(yscroll=pasek_s.set)
+        pasek_s.pack(side="right", fill="y", padx=(0, 10), pady=10)
+
+        if self.cache_sen is not None and not self.cache_sen.empty:
+            for idx, wiersz in self.cache_sen.iterrows():
+                start_str = wiersz['start_pelny'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(
+                    wiersz.get('start_pelny')) else "-"
+                koniec_str = wiersz['koniec_pelny'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(
+                    wiersz.get('koniec_pelny')) else "-"
+                min_str = f"{wiersz['czas_snu'] // 60}" if pd.notna(wiersz.get('czas_snu')) else "-"
+                tabela_s.insert("", "end", values=(start_str, koniec_str, min_str))
 
     def start_analizy(self):
         if not self.folder_sen_sciezka or not self.folder_aktywnosc_sciezka:
@@ -525,17 +803,28 @@ class Aplikacja(ctk.CTk):
         pomin_falszywe_stan = bool(self.ukryj_falszywe_var.get())
 
         self.pole_tekstowe.delete("1.0", ctk.END)
-        self.pole_tekstowe.insert(ctk.END, "Trwa analizowanie danych... (Może to zająć chwilę)\n")
+        self.pole_tekstowe.insert(ctk.END, "Trwa obliczanie wskaźników diagnostycznych...\n")
         self.btn_zapisz.configure(state="disabled")
         self.update()
 
         try:
-            self.zapisana_baza, self.zapisany_raport_tekst = uruchom_analize(
-                self.folder_sen_sciezka, self.folder_aktywnosc_sciezka, data_od_str, data_do_str, pomin_falszywe_stan
+            if self.cache_sen is None or self.cache_tetno is None or self.cache_kroki is None:
+                self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(
+                    self.folder_sen_sciezka, self.folder_aktywnosc_sciezka
+                )
+
+            self.pelna_baza, self.zapisana_baza, self.zapisany_raport_tekst = uruchom_analize_z_cache(
+                self.cache_sen, self.cache_tetno, self.cache_kroki, data_od_str, data_do_str, pomin_falszywe_stan
             )
+
+            if self.pelna_baza is not None and not self.pelna_baza.empty:
+                self.btn_heatmap.configure(state="normal")
 
             if self.zapisana_baza.empty:
                 self.pole_tekstowe.insert(ctk.END, "\nBrak danych w wybranym przedziale czasowym!")
+                self.wypelnij_tabele_danych(None, self.tab_dane)
+                self.rysuj_wykres_w_zakladce(None, self.tab_rhr)
+                self.rysuj_wykres_w_zakladce(None, self.tab_hros)
             else:
                 self.pole_tekstowe.delete("1.0", ctk.END)
                 self.pole_tekstowe.insert(ctk.END, self.zapisany_raport_tekst)
@@ -550,12 +839,11 @@ class Aplikacja(ctk.CTk):
                         for idx, wiersz in baza_do_wykresow[
                             (baza_do_wykresow[kol_inf] == 1) | (baza_do_wykresow[kol_ostrz] == 1)].iterrows():
                             data_zd = wiersz['Data']
-
                             okno_przed = self.zapisana_baza[
                                 (self.zapisana_baza['Data'] >= data_zd - pd.Timedelta(days=14)) & (
-                                        self.zapisana_baza['Data'] < data_zd)]
+                                            self.zapisana_baza['Data'] < data_zd)]
                             okno_po = self.zapisana_baza[(self.zapisana_baza['Data'] >= data_zd) & (
-                                    self.zapisana_baza['Data'] <= data_zd + pd.Timedelta(days=7))]
+                                        self.zapisana_baza['Data'] <= data_zd + pd.Timedelta(days=7))]
 
                             kroki_przed = okno_przed['Liczba kroków'].mean()
                             kroki_po = okno_po['Liczba kroków'].mean()
@@ -573,6 +861,7 @@ class Aplikacja(ctk.CTk):
                 self.rysuj_wykres_w_zakladce(self.fig_rhr, self.tab_rhr)
                 self.rysuj_wykres_w_zakladce(self.fig_hros, self.tab_hros)
 
+                self.wypelnij_tabele_danych(self.zapisana_baza, self.tab_dane)
                 self.btn_zapisz.configure(state="normal")
 
         except FileNotFoundError as fnf_error:
@@ -600,7 +889,6 @@ class Aplikacja(ctk.CTk):
 
             for i in range(0, len(linie_raportu), max_linii):
                 fragment_tekstu = '\n'.join(linie_raportu[i:i + max_linii])
-
                 fig_text = plt.figure(figsize=(10, 8))
                 fig_text.clf()
                 fig_text.text(0.05, 0.95, fragment_tekstu, transform=fig_text.transFigure, size=10, family='monospace',
