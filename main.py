@@ -2,7 +2,6 @@ import os
 from json import load
 import pandas as pd
 import numpy as np
-
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.colors import LinearSegmentedColormap
@@ -13,7 +12,7 @@ from tkcalendar import DateEntry
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter.ttk as ttk
 
-# Ustawienia wyglądu GUI (Dark Mode)
+# Ustawienia wyglądu GUI
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -22,13 +21,39 @@ ctk.set_default_color_theme("blue")
 # 1. FUNKCJE POMOCNICZE (Wykresy i Raporty)
 # ==========================================
 
+def przygotuj_dane_do_wykresu(dane, kolumny_subset):
+    czyste_dane = dane.dropna(subset=kolumny_subset).sort_values('Data').copy()
+    if czyste_dane.empty:
+        return czyste_dane
+
+    nowe_wiersze = []
+    for i in range(len(czyste_dane)):
+        wiersz = czyste_dane.iloc[i]
+        if i > 0:
+            poprzedni_wiersz = czyste_dane.iloc[i - 1]
+            roznica_dni = (wiersz['Data'] - poprzedni_wiersz['Data']).days
+            if roznica_dni > 3:
+                wiersz_nan = wiersz.copy()
+                wiersz_nan['Data'] = poprzedni_wiersz['Data'] + pd.Timedelta(days=1)
+                for kol in kolumny_subset:
+                    if kol in wiersz_nan:
+                        wiersz_nan[kol] = np.nan
+                for kol_flaga in ['Infekcja_RHR', 'Ostrzezenie_RHR', 'Infekcja_HROS', 'Ostrzezenie_HROS']:
+                    if kol_flaga in wiersz_nan:
+                        wiersz_nan[kol_flaga] = 0
+                nowe_wiersze.append(wiersz_nan)
+        nowe_wiersze.append(wiersz)
+
+    wynik = pd.DataFrame(nowe_wiersze).sort_values('Data')
+    wynik['Data_tekst'] = wynik['Data'].dt.strftime('%Y-%m-%d')
+    return wynik
+
+
 def wykres_rhr(dane):
-    czyste_dane = dane.dropna(subset=['Nocne tętno (bpm)', 'Baseline_RHR']).sort_values('Data')
+    czyste_dane = przygotuj_dane_do_wykresu(dane, ['Nocne tętno (bpm)', 'Baseline_RHR'])
     if czyste_dane.empty:
         return None
 
-
-    czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Nocne tętno (bpm)'], label='Nocne tętno (bpm)', marker='o',
@@ -37,11 +62,11 @@ def wykres_rhr(dane):
             zorder=2, linewidth=2)
 
     infekcje_rhr = czyste_dane[czyste_dane['Infekcja_RHR'] == 1]
-    ax.scatter(infekcje_rhr['Data_tekst'], infekcje_rhr['Nocne tętno (bpm)'], color='red', s=40, zorder=5,
+    ax.scatter(infekcje_rhr['Data_tekst'], infekcje_rhr['Nocne tętno (bpm)'], color='red', s=20, zorder=5,
                label='Infekcja (>2 std)')
 
     ostrzezenia_rhr = czyste_dane[czyste_dane['Ostrzezenie_RHR'] == 1]
-    ax.scatter(ostrzezenia_rhr['Data_tekst'], ostrzezenia_rhr['Nocne tętno (bpm)'], color='orange', s=40, zorder=4,
+    ax.scatter(ostrzezenia_rhr['Data_tekst'], ostrzezenia_rhr['Nocne tętno (bpm)'], color='orange', s=20, zorder=4,
                label='Ostrzeżenie (1.5-2.0 std)')
 
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
@@ -58,12 +83,10 @@ def wykres_rhr(dane):
 
 
 def wykres_hros(dane):
-    czyste_dane = dane.dropna(subset=['Z_score_HROS']).sort_values('Data')
+    czyste_dane = przygotuj_dane_do_wykresu(dane, ['Z_score_HROS'])
     if czyste_dane.empty:
         return None
 
-
-    czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Z_score_HROS'], label='Wskaźnik anomalii HROS', marker='o',
@@ -73,10 +96,10 @@ def wykres_hros(dane):
     ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja (>2 std)')
 
     infekcje_hros = czyste_dane[czyste_dane['Infekcja_HROS'] == 1]
-    ax.scatter(infekcje_hros['Data_tekst'], infekcje_hros['Z_score_HROS'], color='red', s=40, zorder=5)
+    ax.scatter(infekcje_hros['Data_tekst'], infekcje_hros['Z_score_HROS'], color='red', s=20, zorder=5)
 
     ostrzezenia_hros = czyste_dane[czyste_dane['Ostrzezenie_HROS'] == 1]
-    ax.scatter(ostrzezenia_hros['Data_tekst'], ostrzezenia_hros['Z_score_HROS'], color='orange', s=40, zorder=4)
+    ax.scatter(ostrzezenia_hros['Data_tekst'], ostrzezenia_hros['Z_score_HROS'], color='orange', s=20, zorder=4)
 
     ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
     ax.set_xlabel('Data')
@@ -122,7 +145,7 @@ def wykres_heatmap(dane):
     cax = ax.imshow(matrix, aspect='auto', cmap=kolory_mapy, interpolation='nearest', vmin=0, vmax=1)
 
     cbar = fig.colorbar(cax, ticks=[0, 0.5, 1], orientation='vertical')
-    cbar.ax.set_yticklabels(['Brak danych', 'Częściowe', 'Pełne'])
+    cbar.ax.set_yticklabels(['Brak danych', 'Częściowa', 'Pełna'])
 
     ax.set_yticks([0, 1, 2])
     ax.set_yticklabels(['Tętno (pom.)', 'Kroki (pom.)', 'Sen (czas)'])
@@ -181,42 +204,6 @@ def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_meto
     return raport
 
 
-def zapisz_raporty(dane, nazwa_csv="Wyniki_Analizy.csv", nazwa_pdf="Raport_Wykresy.pdf"):
-    dane.to_csv(nazwa_csv, index=False, encoding='utf-8')
-
-    raport_rhr = weryfikuj_objawy(dane, 'Infekcja_RHR', 'Ostrzezenie_RHR', 'Z_score_RHR', "RHR (Nocne)")
-    raport_hros = weryfikuj_objawy(dane, 'Infekcja_HROS', 'Ostrzezenie_HROS', 'Z_score_HROS', "HROS (Kroki)")
-    pelny_raport = raport_rhr + raport_hros
-
-    pelny_raport += "=== POTWIERDZONE OBIEMA METODAMI ===\n"
-    filtr_RHR = (dane['Infekcja_RHR'] == 1) | (dane['Ostrzezenie_RHR'] == 1)
-    filtr_HROS = (dane['Infekcja_HROS'] == 1) | (dane['Ostrzezenie_HROS'] == 1)
-
-    wspolne_infekcje = dane[filtr_RHR & filtr_HROS]
-    if wspolne_infekcje.empty:
-        pelny_raport += "Brak wspólnych dni.\n"
-    else:
-        for index, wiersz in wspolne_infekcje.iterrows():
-            pelny_raport += f"Data: {wiersz['Data'].strftime('%Y-%m-%d')} | Zgodność obu wskaźników\n"
-
-    with PdfPages(nazwa_pdf) as pdf:
-        fig1 = wykres_rhr(dane)
-        if fig1:
-            pdf.savefig(fig1)
-
-        fig2 = wykres_hros(dane)
-        if fig2:
-            pdf.savefig(fig2)
-
-        fig_text = plt.figure(figsize=(10, 8))
-        fig_text.clf()
-        fig_text.text(0.05, 0.95, pelny_raport, transform=fig_text.transFigure, size=10, family='monospace', va='top')
-        pdf.savefig(fig_text)
-        plt.close(fig_text)
-
-    return pelny_raport
-
-
 # ==========================================
 # 2. GŁÓWNA LOGIKA
 # ==========================================
@@ -230,42 +217,9 @@ def generuj_tekst_raportu(dane, pomin_falszywe=False):
 
     pelny_raport += "=== POTWIERDZONE OBIEMA METODAMI ===\n"
 
-    dane_do_wspolnych = dane.copy()
-
-    if pomin_falszywe:
-        for prefiks in ['RHR', 'HROS']:
-            kol_inf = f'Infekcja_{prefiks}'
-            kol_ostrz = f'Ostrzezenie_{prefiks}'
-
-            for idx, wiersz in dane_do_wspolnych[
-                (dane_do_wspolnych[kol_inf] == 1) | (dane_do_wspolnych[kol_ostrz] == 1)].iterrows():
-                data_zd = wiersz['Data']
-                okno_przed = dane_do_wspolnych[(dane_do_wspolnych['Data'] >= data_zd - pd.Timedelta(days=14)) & (
-                        dane_do_wspolnych['Data'] < data_zd)]
-                okno_po = dane_do_wspolnych[(dane_do_wspolnych['Data'] >= data_zd) & (
-                        dane_do_wspolnych['Data'] <= data_zd + pd.Timedelta(days=7))]
-
-                if okno_przed.empty or okno_po.empty:
-                    dane_do_wspolnych.at[idx, kol_inf] = 0
-                    dane_do_wspolnych.at[idx, kol_ostrz] = 0
-                    continue
-
-                kroki_przed = okno_przed['Liczba kroków'].mean()
-                kroki_po = okno_po['Liczba kroków'].mean()
-
-                if pd.isna(kroki_przed) or pd.isna(kroki_po) or kroki_przed <= 0:
-                    dane_do_wspolnych.at[idx, kol_inf] = 0
-                    dane_do_wspolnych.at[idx, kol_ostrz] = 0
-                else:
-                    spadek_proc = ((kroki_po - kroki_przed) / kroki_przed) * 100
-                    if spadek_proc > -20:
-                        dane_do_wspolnych.at[idx, kol_inf] = 0
-                        dane_do_wspolnych.at[idx, kol_ostrz] = 0
-
-    filtr_RHR = (dane_do_wspolnych['Infekcja_RHR'] == 1) | (dane_do_wspolnych['Ostrzezenie_RHR'] == 1)
-    filtr_HROS = (dane_do_wspolnych['Infekcja_HROS'] == 1) | (dane_do_wspolnych['Ostrzezenie_HROS'] == 1)
-
-    wspolne_infekcje = dane_do_wspolnych[filtr_RHR & filtr_HROS]
+    filtr_RHR = (dane['Infekcja_RHR'] == 1) | (dane['Ostrzezenie_RHR'] == 1)
+    filtr_HROS = (dane['Infekcja_HROS'] == 1) | (dane['Ostrzezenie_HROS'] == 1)
+    wspolne_infekcje = dane[filtr_RHR & filtr_HROS]
 
     if wspolne_infekcje.empty:
         pelny_raport += "Brak wspólnych dni.\n"
@@ -284,13 +238,41 @@ def generuj_tekst_raportu(dane, pomin_falszywe=False):
                     if spadek_proc <= -20:
                         is_choroba = True
 
+            if pomin_falszywe and not is_choroba:
+                continue
+
             werdykt = "POTWIERDZONA INFEKCJA" if is_choroba else "FAŁSZYWY ALARM (brak spadku aktywności)"
             pelny_raport += f"Data: {data_zd.strftime('%Y-%m-%d')} | Zgodność obu wskaźników\n  -> {werdykt}\n\n"
 
     return pelny_raport
 
 
-def wczytaj_surowe_dane(folder_sen, folder_aktywnosc):
+def wczytaj_surowe_dane(folder_fit):
+    folder_sen = None
+    folder_aktywnosc = None
+
+    mozliwe_katalogi_sen = ["Wszystkie sesje", "All Sessions"]
+    mozliwe_katalogi_akt = ["Wszystkie dane", "All Data"]
+
+    for nazwa in mozliwe_katalogi_sen:
+        sciezka = os.path.join(folder_fit, nazwa)
+        if os.path.isdir(sciezka):
+            folder_sen = sciezka
+            break
+
+    for nazwa in mozliwe_katalogi_akt:
+        sciezka = os.path.join(folder_fit, nazwa)
+        if os.path.isdir(sciezka):
+            folder_aktywnosc = sciezka
+            break
+
+    if not folder_sen or not folder_aktywnosc:
+        raise FileNotFoundError(
+            "Nie odnaleziono wymaganej struktury w folderze 'Fit'.\n"
+            "Upewnij się, że wskazałeś główny folder 'Fit' pobrany z Google Takeout, "
+            "który zawiera podfoldery 'Wszystkie sesje'/'All Sessions' oraz 'Wszystkie dane'/'All Data'."
+        )
+
     wyniki_snu = []
     for nazwa_pliku in os.listdir(folder_sen):
         if nazwa_pliku.endswith(".json") and "derived" not in nazwa_pliku:
@@ -312,6 +294,9 @@ def wczytaj_surowe_dane(folder_sen, folder_aktywnosc):
 
     sciezka_tetno = os.path.join(folder_aktywnosc,
                                  'derived_com.google.heart_rate.bpm_com.google.android.gms_merge_heart_rate_bpm.json')
+    if not os.path.exists(sciezka_tetno):
+        raise FileNotFoundError(f"Brak pliku tętna w {folder_aktywnosc}")
+
     with open(sciezka_tetno, 'r', encoding='utf-8') as plik:
         dane_json = load(plik)
 
@@ -332,6 +317,9 @@ def wczytaj_surowe_dane(folder_sen, folder_aktywnosc):
 
     sciezka_kroki = os.path.join(folder_aktywnosc,
                                  'derived_com.google.step_count.delta_com.google.android.gms_estimated_steps.json')
+    if not os.path.exists(sciezka_kroki):
+        raise FileNotFoundError(f"Brak pliku kroków w {folder_aktywnosc}")
+
     with open(sciezka_kroki, 'r', encoding='utf-8') as plik:
         dane_kroki = load(plik)
 
@@ -376,13 +364,14 @@ def uruchom_analize_z_cache(tabela_sen, tabela_tetno, tabela_kroki, data_od, dat
         dzienne_rhr.rename(columns={'Tetno': 'Nocne tętno (bpm)'}, inplace=True)
         dzienne_rhr.set_index('Data', inplace=True)
 
-        base_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).mean()
-        std_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=7).std()
+        base_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=14).mean()
+        std_temp = dzienne_rhr['Nocne tętno (bpm)'].rolling('28D', min_periods=14).std().clip(lower=1.0)
+
         z_temp = (dzienne_rhr['Nocne tętno (bpm)'] - base_temp) / std_temp
         czyste_tetno_rhr = dzienne_rhr['Nocne tętno (bpm)'].mask(z_temp > 2.0)
 
-        dzienne_rhr['Baseline_RHR'] = czyste_tetno_rhr.rolling('28D', min_periods=7).mean()
-        dzienne_rhr['Odchylenie_RHR'] = czyste_tetno_rhr.rolling('28D', min_periods=7).std()
+        dzienne_rhr['Baseline_RHR'] = czyste_tetno_rhr.rolling('28D', min_periods=14).mean()
+        dzienne_rhr['Odchylenie_RHR'] = czyste_tetno_rhr.rolling('28D', min_periods=14).std().clip(lower=1.0)
         dzienne_rhr.reset_index(inplace=True)
 
         dzienne_rhr['Z_score_RHR'] = (dzienne_rhr['Nocne tętno (bpm)'] - dzienne_rhr['Baseline_RHR']) / dzienne_rhr[
@@ -411,13 +400,13 @@ def uruchom_analize_z_cache(tabela_sen, tabela_tetno, tabela_kroki, data_od, dat
     tabela_hros_spoczynek = tabela_hros[tabela_hros['Koszyk'] == 'Bardzo lekki'].copy()
 
     def licz_normy_koszyka(grupa):
-        b_temp = grupa['Tetno'].rolling('28D', min_periods=7).mean()
-        s_temp = grupa['Tetno'].rolling('28D', min_periods=7).std()
+        b_temp = grupa['Tetno'].rolling('28D', min_periods=14).mean()
+        s_temp = grupa['Tetno'].rolling('28D', min_periods=14).std().clip(lower=1.0)
         z_temp = (grupa['Tetno'] - b_temp) / s_temp
 
         czyste_hr = grupa['Tetno'].mask(z_temp > 2.0)
-        grupa['Baseline_HR'] = czyste_hr.rolling('28D', min_periods=7).mean()
-        grupa['Std_HR'] = czyste_hr.rolling('28D', min_periods=7).std()
+        grupa['Baseline_HR'] = czyste_hr.rolling('28D', min_periods=14).mean()
+        grupa['Std_HR'] = czyste_hr.rolling('28D', min_periods=14).std().clip(lower=1.0)
         return grupa
 
     if not tabela_hros_spoczynek.empty:
@@ -499,8 +488,7 @@ class Aplikacja(ctk.CTk):
 
         stylizuj_tabele()
 
-        self.folder_sen_sciezka = ""
-        self.folder_aktywnosc_sciezka = ""
+        self.folder_fit_sciezka = ""
 
         self.cache_sen = None
         self.cache_tetno = None
@@ -516,19 +504,12 @@ class Aplikacja(ctk.CTk):
         self.frame_folder = ctk.CTkFrame(self)
         self.frame_folder.pack(pady=10, padx=20, fill="x")
 
-        self.btn_folder_sen = ctk.CTkButton(self.frame_folder, text="Wybierz folder: SEN",
-                                            command=self.wybierz_folder_snu)
-        self.btn_folder_sen.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        self.label_folder_sen = ctk.CTkLabel(self.frame_folder, text="Brak wybranego folderu ze snem",
+        self.btn_folder_fit = ctk.CTkButton(self.frame_folder, text="Wybierz folder Fit",
+                                            command=self.wybierz_folder_fit)
+        self.btn_folder_fit.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        self.label_folder_fit = ctk.CTkLabel(self.frame_folder, text="Brak wybranego folderu",
                                              text_color="gray")
-        self.label_folder_sen.grid(row=0, column=1, padx=10, pady=10, sticky="w")
-
-        self.btn_folder_akt = ctk.CTkButton(self.frame_folder, text="Wybierz folder: KROKI / TĘTNO",
-                                            command=self.wybierz_folder_aktywnosci)
-        self.btn_folder_akt.grid(row=1, column=0, padx=10, pady=10, sticky="w")
-        self.label_folder_akt = ctk.CTkLabel(self.frame_folder, text="Brak wybranego folderu z aktywnością",
-                                             text_color="gray")
-        self.label_folder_akt.grid(row=1, column=1, padx=10, pady=10, sticky="w")
+        self.label_folder_fit.grid(row=0, column=1, padx=10, pady=10, sticky="w")
 
         self.frame_daty = ctk.CTkFrame(self)
         self.frame_daty.pack(pady=10, padx=20, fill="x")
@@ -543,19 +524,19 @@ class Aplikacja(ctk.CTk):
                                       date_pattern='y-mm-dd')
         self.kalendarz_do.pack(side="left", padx=5)
 
-        self.ukryj_falszywe_var = ctk.IntVar(value=0)
+        self.ukryj_falszywe_var = ctk.IntVar(value=1)
 
         self.check_falszywe = ctk.CTkCheckBox(self.frame_daty, text="Ukryj fałszywe alarmy",
                                               variable=self.ukryj_falszywe_var)
         self.check_falszywe.pack(side="left", padx=10, pady=10)
 
-        self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom analizę", command=self.start_analizy,
-                                          fg_color="#7a0099", hover_color="#5c0073")
-        self.btn_analizuj.pack(side="left", padx=10, pady=10)
-
         self.btn_skanuj = ctk.CTkButton(self.frame_daty, text="Sprawdź dane", command=self.sprawdz_dane,
                                         fg_color="#d97706", hover_color="#b45309")
         self.btn_skanuj.pack(side="left", padx=10, pady=10)
+
+        self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom analizę", command=self.start_analizy,
+                                          fg_color="#7a0099", hover_color="#5c0073")
+        self.btn_analizuj.pack(side="left", padx=10, pady=10)
 
         self.btn_zapisz = ctk.CTkButton(self.frame_daty, text="Generuj PDF/CSV", command=self.generuj_pliki,
                                         fg_color="green", state="disabled")
@@ -572,8 +553,17 @@ class Aplikacja(ctk.CTk):
         self.frame_tekst.pack(side="left", fill="y", padx=(0, 10))
         self.label_raport = ctk.CTkLabel(self.frame_tekst, text="Podsumowanie diagnostyczne:")
         self.label_raport.pack(pady=(0, 5), anchor="w")
-        self.pole_tekstowe = ctk.CTkTextbox(self.frame_tekst, width=450, font=("Consolas", 12))
+
+        self.pole_tekstowe = ctk.CTkTextbox(self.frame_tekst, width=450, font=("Consolas", 12), wrap="word")
         self.pole_tekstowe.pack(fill="y", expand=True)
+
+        instrukcja_powitalna = (
+            "Instrukcja:\n"
+            "1. Wskaż lokalizację folderu \"Fit\" (znajduje się w katalogu utworzonym po rozpakowaniu archiwum pobranego z Google Takeout).\n"
+            "2. Kliknij 'Sprawdź dane', aby wczytać pliki, sprawdzić zakres dostępnych dat i uaktywnić podgląd danych źródłowych, lub od razu wybierz zakres dat w kalendarzu i kliknij 'Uruchom analizę', aby sprawdzić wyniki.\n"
+            "3. Pamiętaj, że zaznaczenie lub odznaczenie opcji 'Ukryj fałszywe alarmy' musi nastąpić przed kliknięciem 'Uruchom analizę'."
+        )
+        self.pole_tekstowe.insert("1.0", instrukcja_powitalna)
 
         self.zakladki = ctk.CTkTabview(self.frame_dolny)
         self.zakladki.pack(side="right", fill="both", expand=True)
@@ -582,34 +572,26 @@ class Aplikacja(ctk.CTk):
         self.tab_rhr = self.zakladki.add("Wykres RHR")
         self.tab_hros = self.zakladki.add("Wykres HROS")
 
-    def wybierz_folder_snu(self):
-        folder = filedialog.askdirectory(title="Wybierz folder z danymi o śnie")
+    def wybierz_folder_fit(self):
+        folder = filedialog.askdirectory(title="Wybierz główny folder 'Fit' z Google Takeout")
         if folder:
-            self.folder_sen_sciezka = folder
-            self.label_folder_sen.configure(text=folder)
+            self.folder_fit_sciezka = folder
+            self.label_folder_fit.configure(text=folder)
             self.cache_sen = None
-
-    def wybierz_folder_aktywnosci(self):
-        folder = filedialog.askdirectory(title="Wybierz folder z danymi o krokach i tętnie")
-        if folder:
-            self.folder_aktywnosc_sciezka = folder
-            self.label_folder_akt.configure(text=folder)
             self.cache_tetno = None
             self.cache_kroki = None
 
     def sprawdz_dane(self):
-        if not self.folder_sen_sciezka or not self.folder_aktywnosc_sciezka:
-            messagebox.showwarning("Błąd", "Wybierz najpierw OBA foldery z danymi!")
+        if not self.folder_fit_sciezka:
+            messagebox.showwarning("Błąd", "Wybierz najpierw główny folder 'Fit' z danymi!")
             return
 
         try:
             self.pole_tekstowe.delete("1.0", ctk.END)
-            self.pole_tekstowe.insert(ctk.END, "Sprawdzanie folderów i wczytywanie danych...\n")
+            self.pole_tekstowe.insert(ctk.END, "Skanowanie struktury folderów i wczytywanie danych...\n")
             self.update()
 
-            self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(
-                self.folder_sen_sciezka, self.folder_aktywnosc_sciezka
-            )
+            self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(self.folder_fit_sciezka)
 
             if self.cache_sen.empty:
                 messagebox.showwarning("Uwaga", "Nie znaleziono danych o śnie.")
@@ -650,9 +632,9 @@ class Aplikacja(ctk.CTk):
             self.pole_tekstowe.delete("1.0", ctk.END)
             self.pole_tekstowe.insert(ctk.END, f"Sprawdzanie zakończone pomyślnie!\n\n")
             self.pole_tekstowe.insert(ctk.END,
-                                      f"Wykryto zakres od: {min_data.strftime('%Y-%m-%d')} do: {max_data.strftime('%Y-%m-%d')}\n")
+                                      f"Wykryto zakres od: {min_data.strftime('%Y-%m-%d')} do: {max_data.strftime('%Y-%m-%d')}\n\n")
             self.pole_tekstowe.insert(ctk.END,
-                                      "Kalendarz został zaktualizowany. Kliknij 'Pokaż dane źródłowe', żeby zobaczyć wczytane dane i ich wizualizację.\n")
+                                      "Kalendarz został zaktualizowany. Możesz teraz wybrać 'Uruchom analizę' lub podejrzeć surowe dane klikając 'Pokaż dane źródłowe'.\n")
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Wystąpił problem podczas sprawdzania danych:\n{str(e)}")
@@ -687,14 +669,15 @@ class Aplikacja(ctk.CTk):
 
         if dane is not None and not dane.empty:
             for idx, wiersz in dane.iterrows():
-                dt = wiersz['Data'].strftime('%Y-%m-%d')
-                kroki = f"{wiersz['Liczba kroków']:.0f}" if pd.notna(wiersz['Liczba kroków']) else "-"
-                sen = f"{wiersz['Czas snu (min)']:.0f}" if pd.notna(wiersz['Czas snu (min)']) else "-"
-                sr_dzienne = f"{wiersz['Srednie_dzienne_HR']:.1f}" if pd.notna(wiersz['Srednie_dzienne_HR']) else "-"
-                rhr = f"{wiersz['Nocne tętno (bpm)']:.1f}" if pd.notna(wiersz['Nocne tętno (bpm)']) else "-"
-                norma = f"{wiersz['Baseline_RHR']:.1f}" if pd.notna(wiersz['Baseline_RHR']) else "-"
-                odchyl_rhr = f"{wiersz['Odchylenie_RHR']:.2f}" if pd.notna(wiersz['Odchylenie_RHR']) else "-"
-                hros = f"{wiersz['Z_score_HROS']:.2f}" if pd.notna(wiersz['Z_score_HROS']) else "-"
+                dt = wiersz['Data'].strftime('%Y-%m-%d') if pd.notna(wiersz['Data']) else "-"
+                kroki = f"{wiersz['Liczba kroków']:.0f}" if pd.notna(wiersz.get('Liczba kroków')) else "-"
+                sen = f"{wiersz['Czas snu (min)']:.0f}" if pd.notna(wiersz.get('Czas snu (min)')) else "-"
+                sr_dzienne = f"{wiersz['Srednie_dzienne_HR']:.1f}" if pd.notna(
+                    wiersz.get('Srednie_dzienne_HR')) else "-"
+                rhr = f"{wiersz['Nocne tętno (bpm)']:.1f}" if pd.notna(wiersz.get('Nocne tętno (bpm)')) else "-"
+                norma = f"{wiersz['Baseline_RHR']:.1f}" if pd.notna(wiersz.get('Baseline_RHR')) else "-"
+                odchyl_rhr = f"{wiersz['Odchylenie_RHR']:.2f}" if pd.notna(wiersz.get('Odchylenie_RHR')) else "-"
+                hros = f"{wiersz['Z_score_HROS']:.2f}" if pd.notna(wiersz.get('Z_score_HROS')) else "-"
 
                 tabela.insert("", "end", values=(dt, kroki, sen, sr_dzienne, rhr, norma, odchyl_rhr, hros))
 
@@ -797,11 +780,10 @@ class Aplikacja(ctk.CTk):
                 tabela_s.insert("", "end", values=(start_str, koniec_str, min_str))
 
     def start_analizy(self):
-        if not self.folder_sen_sciezka or not self.folder_aktywnosc_sciezka:
-            messagebox.showwarning("Błąd", "Wybierz najpierw OBA foldery z danymi!")
+        if not self.folder_fit_sciezka:
+            messagebox.showwarning("Błąd", "Wybierz najpierw główny folder 'Fit' z danymi!")
             return
 
-        # POPRAWKA KALENDARZA: Pobieramy obiekt datetime zamiast stringa
         data_od_dt = self.kalendarz_od.get_date()
         data_do_dt = self.kalendarz_do.get_date()
         pomin_falszywe_stan = bool(self.ukryj_falszywe_var.get())
@@ -813,9 +795,7 @@ class Aplikacja(ctk.CTk):
 
         try:
             if self.cache_sen is None or self.cache_tetno is None or self.cache_kroki is None:
-                self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(
-                    self.folder_sen_sciezka, self.folder_aktywnosc_sciezka
-                )
+                self.cache_sen, self.cache_tetno, self.cache_kroki = wczytaj_surowe_dane(self.folder_fit_sciezka)
 
             self.pelna_baza, self.zapisana_baza, self.zapisany_raport_tekst = uruchom_analize_z_cache(
                 self.cache_sen, self.cache_tetno, self.cache_kroki, data_od_dt, data_do_dt, pomin_falszywe_stan
@@ -868,11 +848,10 @@ class Aplikacja(ctk.CTk):
                 self.wypelnij_tabele_danych(self.zapisana_baza, self.tab_dane)
                 self.btn_zapisz.configure(state="normal")
 
-                # POPRAWKA UI: Automatyczne przełączenie na zakładkę z danymi po analizie
                 self.zakladki.set("Dane")
 
         except FileNotFoundError as fnf_error:
-            self.pole_tekstowe.insert(ctk.END, f"\nNie znaleziono pliku:\n{str(fnf_error)}\n")
+            self.pole_tekstowe.insert(ctk.END, f"\nWystąpił problem:\n{str(fnf_error)}\n")
         except Exception as e:
             self.pole_tekstowe.insert(ctk.END, f"\nWystąpił błąd:\n{str(e)}\n")
 
