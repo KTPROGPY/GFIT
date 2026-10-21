@@ -2,6 +2,7 @@ import os
 from json import load
 import pandas as pd
 import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.colors import LinearSegmentedColormap
@@ -25,6 +26,7 @@ def wykres_rhr(dane):
     czyste_dane = dane.dropna(subset=['Nocne tętno (bpm)', 'Baseline_RHR']).sort_values('Data')
     if czyste_dane.empty:
         return None
+
 
     czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -60,14 +62,15 @@ def wykres_hros(dane):
     if czyste_dane.empty:
         return None
 
+
     czyste_dane['Data_tekst'] = czyste_dane['Data'].dt.strftime('%Y-%m-%d')
     fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.plot(czyste_dane['Data_tekst'], czyste_dane['Z_score_HROS'], label='Wskaźnik anomalii HROS', marker='o',
             color='tab:purple', zorder=3, alpha=0.6)
 
-    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie (15% dnia w anomalii)')
-    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja (20% dnia w anomalii)')
+    ax.axhline(y=1.5, color='orange', linestyle='--', zorder=2, label='Ostrzeżenie (1.5-2.0 std)')
+    ax.axhline(y=2.0, color='red', linestyle='--', zorder=2, label='Infekcja (>2 std)')
 
     infekcje_hros = czyste_dane[czyste_dane['Infekcja_HROS'] == 1]
     ax.scatter(infekcje_hros['Data_tekst'], infekcje_hros['Z_score_HROS'], color='red', s=40, zorder=5)
@@ -546,7 +549,7 @@ class Aplikacja(ctk.CTk):
                                               variable=self.ukryj_falszywe_var)
         self.check_falszywe.pack(side="left", padx=10, pady=10)
 
-        self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom Analizę", command=self.start_analizy,
+        self.btn_analizuj = ctk.CTkButton(self.frame_daty, text="Uruchom analizę", command=self.start_analizy,
                                           fg_color="#7a0099", hover_color="#5c0073")
         self.btn_analizuj.pack(side="left", padx=10, pady=10)
 
@@ -558,7 +561,7 @@ class Aplikacja(ctk.CTk):
                                         fg_color="green", state="disabled")
         self.btn_zapisz.pack(side="right", padx=10, pady=10)
 
-        self.btn_heatmap = ctk.CTkButton(self.frame_daty, text="Pokaż dane", command=self.pokaz_okno_danych,
+        self.btn_heatmap = ctk.CTkButton(self.frame_daty, text="Pokaż dane źródłowe", command=self.pokaz_okno_danych,
                                          fg_color="#0055ff", state="disabled")
         self.btn_heatmap.pack(side="right", padx=10, pady=10)
 
@@ -575,7 +578,7 @@ class Aplikacja(ctk.CTk):
         self.zakladki = ctk.CTkTabview(self.frame_dolny)
         self.zakladki.pack(side="right", fill="both", expand=True)
 
-        self.tab_dane = self.zakladki.add("Wszystkie Dane")
+        self.tab_dane = self.zakladki.add("Dane")
         self.tab_rhr = self.zakladki.add("Wykres RHR")
         self.tab_hros = self.zakladki.add("Wykres HROS")
 
@@ -649,7 +652,7 @@ class Aplikacja(ctk.CTk):
             self.pole_tekstowe.insert(ctk.END,
                                       f"Wykryto zakres od: {min_data.strftime('%Y-%m-%d')} do: {max_data.strftime('%Y-%m-%d')}\n")
             self.pole_tekstowe.insert(ctk.END,
-                                      "Kalendarz został zaktualizowany. Kliknij 'Pokaż dane', żeby zobaczyć wczytane dane i ich wizualizację.\n")
+                                      "Kalendarz został zaktualizowany. Kliknij 'Pokaż dane źródłowe', żeby zobaczyć wczytane dane i ich wizualizację.\n")
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Wystąpił problem podczas sprawdzania danych:\n{str(e)}")
@@ -667,14 +670,14 @@ class Aplikacja(ctk.CTk):
         for widget in zakladka.winfo_children():
             widget.destroy()
 
-        kolumny = ("Data", "Kroki (dzienne)", "Sen (min)", "Średnie tętno dzienne (bpm)", "Nocne RHR (bpm)",
-                   "Norma RHR (28d)", "Odchylenie RHR", "Wskaźnik HROS")
+        kolumny = ("Data", "Kroki", "Sen (min)", "Średnie tętno", "RHR", "Norma RHR (28d)", "Odchylenie RHR",
+                   "Wskaźnik HROS")
 
         tabela = ttk.Treeview(zakladka, columns=kolumny, show="headings", height=15)
 
         for kol in kolumny:
             tabela.heading(kol, text=kol)
-            tabela.column(kol, width=110, anchor="center")
+            tabela.column(kol, width=120, anchor="center")
 
         tabela.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
 
@@ -798,8 +801,9 @@ class Aplikacja(ctk.CTk):
             messagebox.showwarning("Błąd", "Wybierz najpierw OBA foldery z danymi!")
             return
 
-        data_od_str = self.kalendarz_od.get()
-        data_do_str = self.kalendarz_do.get()
+        # POPRAWKA KALENDARZA: Pobieramy obiekt datetime zamiast stringa
+        data_od_dt = self.kalendarz_od.get_date()
+        data_do_dt = self.kalendarz_do.get_date()
         pomin_falszywe_stan = bool(self.ukryj_falszywe_var.get())
 
         self.pole_tekstowe.delete("1.0", ctk.END)
@@ -814,7 +818,7 @@ class Aplikacja(ctk.CTk):
                 )
 
             self.pelna_baza, self.zapisana_baza, self.zapisany_raport_tekst = uruchom_analize_z_cache(
-                self.cache_sen, self.cache_tetno, self.cache_kroki, data_od_str, data_do_str, pomin_falszywe_stan
+                self.cache_sen, self.cache_tetno, self.cache_kroki, data_od_dt, data_do_dt, pomin_falszywe_stan
             )
 
             if self.pelna_baza is not None and not self.pelna_baza.empty:
@@ -863,6 +867,9 @@ class Aplikacja(ctk.CTk):
 
                 self.wypelnij_tabele_danych(self.zapisana_baza, self.tab_dane)
                 self.btn_zapisz.configure(state="normal")
+
+                # POPRAWKA UI: Automatyczne przełączenie na zakładkę z danymi po analizie
+                self.zakladki.set("Dane")
 
         except FileNotFoundError as fnf_error:
             self.pole_tekstowe.insert(ctk.END, f"\nNie znaleziono pliku:\n{str(fnf_error)}\n")
