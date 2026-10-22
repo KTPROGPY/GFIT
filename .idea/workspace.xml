@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="f2cdb614-0e4b-49e9-acd1-2136a673d70b" name="Changes" comment="drobne poprawki">
+    <list default="true" id="f2cdb614-0e4b-49e9-acd1-2136a673d70b" name="Changes" comment="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użutkowania">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
@@ -9,6 +9,13 @@
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -30,6 +37,9 @@
   &quot;fromUser&quot;: false
 }</component>
   <component name="ProjectId" id="3JeQlzad49I8Yv60ivI9EMxpKig" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="1" id="Add" />
+  </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
@@ -38,15 +48,18 @@
   &quot;keyToString&quot;: {
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.uwagi.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
     &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.main">
     <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="PythonGFIT" />
       <option name="ENV_FILES" value="" />
@@ -72,9 +85,35 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="uwagi" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="PythonGFIT" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/uwagi.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
         <item itemvalue="Python.main" />
+        <item itemvalue="Python.uwagi" />
       </list>
     </recent_temporary>
   </component>
@@ -96,7 +135,29 @@
       <workItem from="1790019209985" duration="7307000" />
       <workItem from="1790064788782" duration="16464000" />
       <workItem from="1790276281838" duration="2903000" />
-      <workItem from="1790364122950" duration="2599000" />
+      <workItem from="1790364122950" duration="5836000" />
+      <workItem from="1790449565373" duration="3430000" />
+      <workItem from="1790533648655" duration="10741000" />
+      <workItem from="1790550767913" duration="10000" />
+      <workItem from="1790597637728" duration="19149000" />
+      <workItem from="1790677917359" duration="7212000" />
+      <workItem from="1790686267837" duration="8295000" />
+      <workItem from="1790849053029" duration="3690000" />
+      <workItem from="1790938009987" duration="2373000" />
+      <workItem from="1791030341048" duration="353000" />
+      <workItem from="1791058371235" duration="5311000" />
+      <workItem from="1791113415353" duration="17440000" />
+      <workItem from="1791188593488" duration="15668000" />
+      <workItem from="1791277277388" duration="7417000" />
+      <workItem from="1791408443154" duration="20000" />
+      <workItem from="1791494651590" duration="4066000" />
+      <workItem from="1791830884634" duration="7412000" />
+      <workItem from="1792058902466" duration="2288000" />
+      <workItem from="1792065479915" duration="7133000" />
+      <workItem from="1792489729458" duration="5842000" />
+      <workItem from="1792568579463" duration="15722000" />
+      <workItem from="1792660783814" duration="654000" />
+      <workItem from="1792661957180" duration="790000" />
     </task>
     <task id="LOCAL-00001" summary="start - wczytanie pliku .csv">
       <option name="closed" value="true" />
@@ -130,19 +191,191 @@
       <option name="project" value="LOCAL" />
       <updated>1790074423948</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="DF + poprawki">
+      <option name="closed" value="true" />
+      <created>1790368268054</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1790368268054</updated>
+    </task>
+    <task id="LOCAL-00006" summary="wykresy serii">
+      <option name="closed" value="true" />
+      <created>1790632866625</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1790632866625</updated>
+    </task>
+    <task id="LOCAL-00007" summary="wykresy serii + statystyka">
+      <option name="closed" value="true" />
+      <created>1790680676199</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1790680676199</updated>
+    </task>
+    <task id="LOCAL-00008" summary="heatmapa">
+      <option name="closed" value="true" />
+      <created>1790693916696</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1790693916696</updated>
+    </task>
+    <task id="LOCAL-00009" summary="zmiana algorytmu, dodanie tętna">
+      <option name="closed" value="true" />
+      <created>1791065131306</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1791065131306</updated>
+    </task>
+    <task id="LOCAL-00010" summary="dodano stany ostrzegawcze">
+      <option name="closed" value="true" />
+      <created>1791114767764</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1791114767764</updated>
+    </task>
+    <task id="LOCAL-00011" summary="dodano stany ostrzegawcze + poprawa błędów">
+      <option name="closed" value="true" />
+      <created>1791123173420</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1791123173420</updated>
+    </task>
+    <task id="LOCAL-00012" summary="dodanie obliczeń i wykresu HROS">
+      <option name="closed" value="true" />
+      <created>1791151116171</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1791151116171</updated>
+    </task>
+    <task id="LOCAL-00013" summary="dodano filtrowanie po dacie, optymalizacja io poprawa czytelności">
+      <option name="closed" value="true" />
+      <created>1791200525391</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1791200525391</updated>
+    </task>
+    <task id="LOCAL-00014" summary="GUI">
+      <option name="closed" value="true" />
+      <created>1791204535785</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1791204535785</updated>
+    </task>
+    <task id="LOCAL-00015" summary="dodano filtracje(walidacja czasu noszenia i usuwanie wartości skrajnych), dodano checkbox do ukrywania fałszywych alarmów">
+      <option name="closed" value="true" />
+      <created>1791831927323</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1791831927323</updated>
+    </task>
+    <task id="LOCAL-00016" summary="dodano filtracje(walidacja czasu noszenia i usuwanie wartości skrajnych), dodano checkbox do ukrywania fałszywych alarmów">
+      <option name="closed" value="true" />
+      <created>1791831970399</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1791831970399</updated>
+    </task>
+    <task id="LOCAL-00017" summary="poprawki w algorytmie HROS i &#10;inne drobne poprawki">
+      <option name="closed" value="true" />
+      <created>1791838359267</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1791838359267</updated>
+    </task>
+    <task id="LOCAL-00018" summary="popraweki RHR i HROS (usuniecie infekcji ze średniej, filtracja spoczynku, procent anomalii zamiast max)">
+      <option name="closed" value="true" />
+      <created>1792096159756</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1792096159756</updated>
+    </task>
+    <task id="LOCAL-00019" summary="dodanie sprawdzania danych wraz z ich podglądem i wizualizacją, zmiana koloru tabel">
+      <option name="closed" value="true" />
+      <created>1792571316930</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1792571316930</updated>
+    </task>
+    <task id="LOCAL-00020" summary="drobne poprawki">
+      <option name="closed" value="true" />
+      <created>1792579819175</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1792579819175</updated>
+    </task>
+    <task id="LOCAL-00021" summary="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użutkowania">
+      <option name="closed" value="true" />
+      <created>1792618666741</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1792618666741</updated>
+    </task>
+    <task id="LOCAL-00022" summary="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użutkowania">
+      <option name="closed" value="true" />
+      <created>1792619013991</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1792619013991</updated>
+    </task>
+    <option name="localTasksCounter" value="23" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="start - wczytanie pliku .csv" />
     <MESSAGE value="+ wczytanie plików .json" />
+    <MESSAGE value="DF + poprawki" />
+    <MESSAGE value="wykresy serii" />
+    <MESSAGE value="wykresy serii + statystyka" />
+    <MESSAGE value="heatmapa" />
+    <MESSAGE value="zmiana algorytmu, dodanie tętna" />
+    <MESSAGE value="dodano stany ostrzegawcze" />
+    <MESSAGE value="dodano stany ostrzegawcze + poprawa błędów" />
+    <MESSAGE value="dodanie obliczeń i wykresu HROS" />
+    <MESSAGE value="dodano filtrowanie po dacie, optymalizacja io poprawa czytelności" />
+    <MESSAGE value="GUI" />
+    <MESSAGE value="dodano filtracje(walidacja czasu noszenia i usuwanie wartości skrajnych), dodano checkbox do ukrywania fałszywych alarmów" />
+    <MESSAGE value="poprawki w algorytmie HROS i &#10;inne drobne poprawki" />
+    <MESSAGE value="popraweki RHR i HROS (usuniecie infekcji ze średniej, filtracja spoczynku, procent anomalii zamiast max)" />
+    <MESSAGE value="dodanie sprawdzania danych wraz z ich podglądem i wizualizacją, zmiana koloru tabel" />
     <MESSAGE value="drobne poprawki" />
-    <option name="LAST_COMMIT_MESSAGE" value="drobne poprawki" />
+    <MESSAGE value="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użytkowania" />
+    <MESSAGE value="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użutkowania" />
+    <option name="LAST_COMMIT_MESSAGE" value="usuniecie niepotrzebnych fragmentów kodu, dopisanie instrukcji użutkowania" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/PythonGFIT$main.coverage" NAME="main Coverage Results" MODIFIED="1790364966952" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PythonGFIT$uwagi.coverage" NAME="uwagi Coverage Results" MODIFIED="1792578078998" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/PythonGFIT$main.coverage" NAME="main Coverage Results" MODIFIED="1792662609267" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

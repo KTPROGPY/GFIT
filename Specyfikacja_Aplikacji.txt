@@ -1,0 +1,17 @@
+SPECYFIKACJA APLIKACJI - ANALIZATOR ZDROWIA
+
+1. OPIS INTERFEJSU GRAFICZNEGO (GUI)
+Aplikacja została zbudowana na bazie biblioteki CustomTkinter, co zapewnia nowoczesny, ciemny wygląd. Okno podzielone jest na trzy główne sekcje:
+- Sekcja górna (Wybór danych): Znajduje się tu przycisk "Wybierz folder Fit" oraz etykieta informująca o wybranej ścieżce.
+- Sekcja środkowa (Narzędzia analityczne): Zawiera kalendarze do wyboru zakresu "Data od" i "Data do", pole wyboru "Ukryj fałszywe alarmy" oraz przyciski akcji: "Sprawdź dane", "Uruchom analizę", "Pokaż dane źródłowe" oraz "Generuj PDF/CSV".
+- Sekcja dolna (Wyniki): Podzielona na dwie części. Po lewej stronie znajduje się pole tekstowe wyświetlające instrukcje oraz wygenerowane podsumowanie diagnostyczne. Po prawej stronie znajdują się zakładki z interaktywnymi tabelami wczytanych danych oraz wygenerowanymi wykresami (RHR i HROS).
+
+Aplikacja posiada również dodatkowe okno (wyskakujące po kliknięciu "Pokaż dane źródłowe"), w którym użytkownik może przeglądać surowe punkty pomiarowe tętna, kroków oraz sesji snu za pomocą scrollowanych tabel, a także analizować heatmapę dostępności danych.
+
+2. OPIS DZIAŁANIA 
+- Wczytywanie: Aplikacja przeszukuje wybrany folder pod kątem plików JSON z tętna, kroków i snu. Następnie wyciąga z nich surowe punkty pomiarowe i przelicza znaczniki czasu na polską strefę czasową.
+- Filtrowanie i czyszczenie: Tętno nocne jest wyliczane tylko z tych okresów, które pokrywają się z zapisanymi sesjami snu (odrzucane są skrajne pomiary 5% górnych i dolnych wartości, aby uniknąć błędów czujnika zegarka).
+- Baza normatywna (Baseline): Dla każdego dnia program oblicza 28-dniową średnią kroczącą tętna oraz odchylenie standardowe. Pozwala to ustalić, jakie tętno jest "normalne" dla użytkownika w danym okresie.
+- Wskaźnik Z-score: Obliczana jest wartość Z-score (różnica między aktualnym wynikiem a normą, podzielona przez odchylenie). Jeśli Z-score przekracza 1.5 - generowane jest ostrzeżenie. Jeśli przekracza 2.0 - aplikacja sygnalizuje możliwą infekcję.
+- Weryfikacja (Redukcja fałszywych alarmów): Jeśli wykryto anomalię, aplikacja cofa się o 14 dni, aby sprawdzić średnią aktywność (kroki) użytkownika. Następnie sprawdza 7 dni po incydencie. Jeśli w czasie podejrzanej infekcji aktywność nie spadła o co najmniej 20%, program traktuje anomalię jako "fałszywy alarm" i ukrywa ją na wykresach (jeśli użytkownik zaznaczył odpowiednią opcję).
+- Zapis: Wyniki tabelaryczne mogą zostać wyeksportowane do pliku CSV, a wykresy i raport tekstowy do pliku PDF, wykorzystując bibliotekę matplotlib.

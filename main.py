@@ -12,10 +12,8 @@ from tkcalendar import DateEntry
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter.ttk as ttk
 
-# Ustawienia wyglądu GUI
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
-
 
 # ==========================================
 # 1. FUNKCJE POMOCNICZE (Wykresy i Raporty)
@@ -47,7 +45,6 @@ def przygotuj_dane_do_wykresu(dane, kolumny_subset):
     wynik = pd.DataFrame(nowe_wiersze).sort_values('Data')
     wynik['Data_tekst'] = wynik['Data'].dt.strftime('%Y-%m-%d')
     return wynik
-
 
 def wykres_rhr(dane):
     czyste_dane = przygotuj_dane_do_wykresu(dane, ['Nocne tętno (bpm)', 'Baseline_RHR'])
@@ -81,7 +78,6 @@ def wykres_rhr(dane):
     plt.tight_layout(pad=2.0)
     return fig
 
-
 def wykres_hros(dane):
     czyste_dane = przygotuj_dane_do_wykresu(dane, ['Z_score_HROS'])
     if czyste_dane.empty:
@@ -112,7 +108,6 @@ def wykres_hros(dane):
 
     plt.tight_layout(pad=2.0)
     return fig
-
 
 def wykres_heatmap(dane):
     if dane.empty:
@@ -159,7 +154,6 @@ def wykres_heatmap(dane):
     plt.tight_layout()
     return fig
 
-
 def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_metody, dni_wstecz=14, dni_w_przod=7,
                      pomin_falszywe=False):
     zdarzenia = dane[(dane[kol_infekcji] == 1) | (dane[kol_ostrzezenia] == 1)]
@@ -203,7 +197,6 @@ def weryfikuj_objawy(dane, kol_infekcji, kol_ostrzezenia, kol_zscore, nazwa_meto
 
     return raport
 
-
 # ==========================================
 # 2. GŁÓWNA LOGIKA
 # ==========================================
@@ -245,7 +238,6 @@ def generuj_tekst_raportu(dane, pomin_falszywe=False):
             pelny_raport += f"Data: {data_zd.strftime('%Y-%m-%d')} | Zgodność obu wskaźników\n  -> {werdykt}\n\n"
 
     return pelny_raport
-
 
 def wczytaj_surowe_dane(folder_fit):
     folder_sen = None
@@ -339,7 +331,6 @@ def wczytaj_surowe_dane(folder_fit):
     tabela_kroki['Data'] = tabela_kroki['PelnyCzas'].dt.normalize()
 
     return tabela_sen, tabela_tetno, tabela_kroki
-
 
 def uruchom_analize_z_cache(tabela_sen, tabela_tetno, tabela_kroki, data_od, data_do, pomin_falszywe=False):
     liczba_hr = tabela_tetno.groupby('Data').size().reset_index(name='Gestosc_HR')
@@ -457,7 +448,6 @@ def uruchom_analize_z_cache(tabela_sen, tabela_tetno, tabela_kroki, data_od, dat
 
     return baza_pelna, baza_do_raportu, raport_tekstowy
 
-
 def stylizuj_tabele():
     style = ttk.Style()
     style.theme_use("clam")
@@ -474,7 +464,6 @@ def stylizuj_tabele():
     style.map("Treeview",
               background=[('selected', '#1f538d')],
               foreground=[('selected', 'white')])
-
 
 # ==========================================
 # 3. INTERFEJS GRAFICZNY (GUI)
@@ -883,7 +872,6 @@ class Aplikacja(ctk.CTk):
                 plt.close(fig_text)
 
         messagebox.showinfo("Sukces", f"Zapisano pomyślnie pliki do folderu głównego:\n{nazwa_csv}\n{nazwa_pdf}")
-
 
 if __name__ == "__main__":
     app = Aplikacja()
